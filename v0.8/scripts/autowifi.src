@@ -66,4 +66,3 @@ print("Trying to connect to " + essid)
 if not get_shell.host_computer.connect_wifi(netdev, bssid, essid, pass) then
 	print("Failed to connect to " + essid)
 end if
-

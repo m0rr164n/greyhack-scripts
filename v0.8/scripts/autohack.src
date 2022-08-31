@@ -1,21 +1,28 @@
 import_code("/home/5n4k3/source/getlib.src")
 import_code("/home/5n4k3/source/gethacks.src")
 
-if params.len != 2 then exit("Usage: test <addr> <port>\nport = Can equal 0 for none.")
+if params.len > 2 then exit("Usage: test <addr> <port>\nport = Can equal 0 for none.")
 if not is_valid_ip(params[0]) then exit("Error: Invalid IP address.")
-if params[1].to_int < 0 or params[1].to_int > 65535 then exit("Error: Invalid port number.")
+if (params[1].val < 0 or params[1].val > 65535) then exit("Error: Invalid port number.")
 
-result = get_remote_hacks(params[0], params[1].to_int)
-if result.len == 0 then exit()
+result = null
+if params.len == 2 then
+	result = get_remote_hacks(params[0], params[1].val)
+else
+	result = get_remote_hacks(params[0])
+end if
+if not result then exit()
 
 shell = null
-lib = result["lib"]
+metax = result["dump"]
 hacks = result["hacks"]
+if not hacks or hacks.len == 0 then exit()
+
 for hack in hacks
 	print("Address: " + hack["memory"])
 	for value in hack["values"]
 		print(" --> " + value)
-		result = lib.overflow(hack["memory"], value, "pass")
+		result = metax.overflow(hack["memory"], value, "pass")
 		if not result then continue
 		
 		if typeof(result) == "computer" then
@@ -35,9 +42,5 @@ end for
 
 // Do something with the shell.
 if shell != null then
-	get_shell.scp(parent_path(launch_path) + "/metaxploit.so", home_dir, shell)
-	get_shell.scp(parent_path(launch_path) + "/crypto.so", home_dir, shell)
-	get_shell.scp(parent_path(launch_path) + "/test", home_dir, shell)
 	shell.start_terminal
 end if
-

@@ -2,7 +2,7 @@
 // Description: Get all remote hacks.
 // Returns: Hacks
 //////////////////////////////////////
-get_remote_hacks = function(addr = null, port = 22)
+get_remote_hacks = function(addr = null, port = 0)
 	result = {}
 	
 	// Run against a remote address/port combination
@@ -13,19 +13,20 @@ get_remote_hacks = function(addr = null, port = 22)
 	
 	mx = get_library()
 	if not mx then return result
-	lib = mx.net_use(addr, port)
-	if not lib then
-		print("Error: Cannot get remote address.")
+	
+	netsession = mx.net_use(addr, port)
+	if not netsession then
+		print("Error: Cannot get net session.")
 		return result
 	end if
 	
-	dump = lib.dump_lib
+	dump = netsession.dump_lib
 	if not dump then
 		print("Error: Cannot dump library.")
 		return result
 	end if
-	
-	hacks = []
+
+	hacks = []	
 	addresses = mx.scan(dump)
 	for mem in addresses
 		pair = {}
@@ -44,7 +45,7 @@ get_remote_hacks = function(addr = null, port = 22)
 		pair["values"] = values
 		hacks = hacks + [pair]
 	end for
-	result["lib"] = dump
+	result["dump"] = dump
 	result["hacks"] = hacks
 	return result
 end function
