@@ -2,45 +2,80 @@ import_code("/home/5n4k3/source/getlib.src")
 import_code("/home/5n4k3/source/gethacks.src")
 
 if params.len > 2 then exit("Usage: test <addr> <port>\nport = Can equal 0 for none.")
-if not is_valid_ip(params[0]) then exit("Error: Invalid IP address.")
-if (params[1].val < 0 or params[1].val > 65535) then exit("Error: Invalid port number.")
+if params.len == 1 or params.len == 2 then
+	if not is_valid_ip(params[0]) then exit("Error: Invalid IP address.")
+	if (params[1].val < 0 or params[1].val > 65535) then exit("Error: Invalid port number.")
 
-result = null
-if params.len == 2 then
-	result = get_remote_hacks(params[0], params[1].val)
-else
-	result = get_remote_hacks(params[0])
-end if
-if not result then exit()
+	result = null
+	if params.len == 2 then
+		result = get_remote_hacks(params[0], params[1].val)
+	else
+		result = get_remote_hacks(params[0])
+	end if
+	if not result then exit()
 
-shell = null
-metax = result["dump"]
-hacks = result["hacks"]
-if not hacks or hacks.len == 0 then exit()
+	shell = null
+	metax = result["dump"]
+	hacks = result["hacks"]
+	if not hacks or hacks.len == 0 then exit()
 
-for hack in hacks
-	print("Address: " + hack["memory"])
-	for value in hack["values"]
-		print(" --> " + value)
-		result = metax.overflow(hack["memory"], value, "pass")
-		if not result then continue
-		
-		if typeof(result) == "computer" then
-			// Do something with computer type.
-		else if typeof(result) == "file" then
-			// Do something with file type.
-		else if typeof(result) == "shell" then
-			// Do something with shell type.
-			shell = result
-		else
-			print("Unknown type of exploit result.")
-		end if
+	for hack in hacks
+		print("Address: " + hack["memory"])
+		for value in hack["values"]
+			print(" --> " + value)
+			result = metax.overflow(hack["memory"], value, "pass")
+			if not result then continue
+
+			if typeof(result) == "computer" then
+				// Do something with computer type.
+			else if typeof(result) == "file" then
+				// Do something with file type.
+			else if typeof(result) == "shell" then
+				// Do something with shell type.
+				shell = result
+			else
+				print("Unknown type of exploit result.")
+			end if
+			if shell then break
+		end for
 		if shell then break
 	end for
-	if shell then break
-end for
 
-// Do something with the shell.
-if shell != null then
-	shell.start_terminal
+	// Do something with the shell.
+	if shell != null then
+		files = []
+		filenames = ["metaxploit.so", "crypto.so", "autohack"]
+		dirs = ["/lib/", parent_path(launch_path) + "/", parent_path(program_path) + "/"]
+		
+		for filename in filenames
+			for dir in dirs
+				if get_shell.host_computer.File(dir + filename) then
+					files = files + [dir + filename]
+					break
+				end if
+			end for
+		end for
+		if files.len == 0 then exit("Error: Cannot get files for transfer.")
+		
+		// Transfer files
+		for file in files
+			get_shell.scp(file, "/home/guest", shell)
+		end for
+		
+		shell.launch("/home/guest/autohack", "")
+	end if
+else
+	// Local exploit to get root access.
+	print("Getting root access...")
+	crypto = get_library("crypto.so")
+	if not crypto then exit("Error: Crypto not found on system.")
+	file = get_shell.host_computer.File("/etc/passwd")
+	if not file then exit("Error: Cannot get passwd file.")
+	roothash = file.get_content.split("\n")[0].split(":")[1]
+	if not roothash then exit("Error: Cannot get root hash.")
+	password = crypto.decipher(roothash)
+	if not password then exit("Error: Failed to decrypt root password.")
+	print("User: root\nPass: " + password)
+	get_shell("root", password).start_terminal
 end if
+
