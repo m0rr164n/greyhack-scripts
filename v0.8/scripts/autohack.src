@@ -66,48 +66,40 @@ if params.len == 1 or params.len == 2 then
 		shell.launch("/home/guest/autohack", "")
 	end if
 else
-	// Local exploit to get root access.
-	hacks = get_local_hacks()
-	if hacks.len == 0 then exit("Failure to get local hacks.")
-
-	shells = [get_shell_type(get_shell)]
-
-	for hack in hacks
-		for value in hack["values"]
-			print(hack["memory"] + " --> " + value)
-			result = hack["metalib"].overflow(hack["memory"], value, "toor")
-			if not result then continue
-		
-			if typeof(result) == "shell" then
-				shells = shells + [get_shell_type(result)]
-			end if
-		end for
-	end for
-	if shells.len == 0 then exit("Error: Could not get a shell.")
-		
-	default = null
-	for shell in shells
-		shells = shells - [shell]
-		if shell["user"] == "guest" then
-			default = shell["shell"]
-			continue
+	// Local exploit.
+	default = get_shell_type(get_shell)
+	if default["user"] == "root" then
+		print("Starting root shell...")
+		default["shell"].start_terminal
+	end if
+	
+	// Login to normal user account.
+	print("Logging into normal user account...")
+	homedir = default["shell"].host_computer.File("/home")
+	if not homedir then exit("Error: Could not get home directory.")
+	username = null
+	for dir in homedir.get_folders
+		if dir.name != "guest" then
+			username = dir.name
+			break
 		end if
-		print("Getting root access...")
-		crypto = get_library("crypto.so")
-		if not crypto then exit("Error: Crypto not found on system.")
-		file = shell["shell"].host_computer.File("/etc/passwd")
-		if not file then exit("Error: Cannot get passwd file.")
-		if not file.has_permission("r") then
-			print("/etc/passwd: Permission denied.")
-			exit()
-		end if
-		if file.is_binary or file.is_folder then exit("File is either binary or a folder.")
-		roothash = file.get_content.split("\n")[0].split(":")[1]
-		if not roothash then exit("Error: Cannot get root hash.")
-		password = crypto.decipher(roothash)
-		if not password then exit("Error: Failed to decrypt root password.")
-		print("User: root\nPass: " + password)
-		get_shell("root", password).start_terminal
 	end for
-	if default != null then default.start_terminal
+	if not username then exit("Error: Could not get a user other than guest.")
+	usershell = get_shell(username, "pass")
+	if not usershell then shell["shell"].start_terminal
+	
+	// Get root access.
+	print("Getting root access...")
+	crypto = get_library("crypto.so")
+	if not crypto then exit("Error: Crypto not found on system.")
+	file = usershell.host_computer.File("/etc/passwd")
+	if not file then exit("Error: Cannot get passwd file.")
+	if not file.has_permission("r") then exit("/etc/passwd: Permission denied.")
+	if file.is_binary or file.is_folder then exit("File is either binary or a folder.")
+	roothash = file.get_content.split("\n")[0].split(":")[1]
+	if not roothash then exit("Error: Cannot get root hash.")
+	password = crypto.decipher(roothash)
+	if not password then exit("Error: Failed to decrypt root password.")
+	print("User: root\nPass: " + password)
+	get_shell("root", password).start_terminal
 end if
