@@ -78,15 +78,15 @@ else
 	homedir = default["shell"].host_computer.File("/home")
 	if not homedir then exit("Error: Could not get home directory.")
 	username = null
+	usershell = null
 	for dir in homedir.get_folders
 		if dir.name != "guest" then
 			username = dir.name
-			break
+			usershell = get_shell(username, "pass")
+			if usershell != null then break
 		end if
 	end for
-	if not username then exit("Error: Could not get a user other than guest.")
-	usershell = get_shell(username, "pass")
-	if not usershell then shell["shell"].start_terminal
+	if not usershell then default["shell"].start_terminal
 	
 	// Get root access.
 	print("Getting root access...")
@@ -103,3 +103,4 @@ else
 	print("User: root\nPass: " + password)
 	get_shell("root", password).start_terminal
 end if
+
