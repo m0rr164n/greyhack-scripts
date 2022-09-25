@@ -59,10 +59,11 @@ if not crypt then exit()
 crypt.airmon("start", netdev)
 crypt.aireplay(bssid, essid, 15000)
 crypt.airmon("stop", netdev)
-pass = crypt.aircrack(parent_path(launch_path) + "/file.cap")
+pass = crypt.aircrack(home_dir + "/file.cap")
 
 // Connect to wifi network.
 print("Trying to connect to " + essid)
 if not get_shell.host_computer.connect_wifi(netdev, bssid, essid, pass) then
 	print("Failed to connect to " + essid)
 end if
+

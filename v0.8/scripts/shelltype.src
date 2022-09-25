@@ -17,3 +17,4 @@ get_shell_type = function(result)
 	end if
 	return shell
 end function
+

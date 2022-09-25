@@ -1,19 +1,25 @@
 ///////////////////////////////////////////
-// Get local library.
+// Load local library.
 // Returns: Metalib library.
 ///////////////////////////////////////////
-get_library = function(libname = "metaxploit.so")
-	mx = null
+load_library = function(libname = "kernel_module.so")
+	if not libname then exit("Error: Library name was not given.")
+	if typeof(libname) != "string" then exit("Error: You need to pass a string.")
+	
+	mx = get_library()
+	if not mx then exit()
+	
+	lib = null
 	libpaths = ["/lib/", parent_path(program_path) + "/"]
 	for libpath in libpaths
-		mx = include_lib(libpath + libname)
-		if not mx then
+		lib = mx.load(libpath + libname)
+		if not lib then
 			print("Warning: Library not found at '" + libpath + "'.")
 		else
 			print("Information: Found library '" + libname + "'.")
 			break
 		end if
 	end for
-	return mx
+	return lib
 end function
 

@@ -25,6 +25,7 @@ get_remote_hacks = function(addr = null, port = 0)
 		print("Error: Cannot dump library.")
 		return result
 	end if
+	print("Getting remote hacks: <color=#A50000><b>" + dump.lib_name + ":" + dump.version + "</b></color>")
 
 	hacks = []	
 	addresses = mx.scan(dump)
@@ -67,9 +68,8 @@ get_local_hacks = function()
 			print("Error: Could not find " + filename)
 			continue
 		end if
-		print("Getting local hacks for /lib/" + filename)
+		print("Getting local hacks: <color=#A50000><b>" + filename + "</b></color>")
 
-		hacks = []	
 		addresses = mx.scan(dump)
 		for mem in addresses
 			hack = {}
@@ -84,7 +84,7 @@ get_local_hacks = function()
 				//print(" --> " + value)
 				values = values + [value]
 			end for
-			hack["metalib"] = dump
+			hack["metalib"] = filename
 			hack["memory"] = mem
 			hack["values"] = values
 			hacks = hacks + [hack]
@@ -92,3 +92,4 @@ get_local_hacks = function()
 	end for
 	return hacks
 end function
+

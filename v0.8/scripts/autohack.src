@@ -2,13 +2,19 @@ import_code("/home/5n4k3/source/getlib.src")
 import_code("/home/5n4k3/source/gethacks.src")
 import_code("/home/5n4k3/source/shelltype.src")
 
-if params.len > 2 then exit("Usage: test <addr> <port>\nport = Can equal 0 for none.")
-if params.len == 1 or params.len == 2 then
+if params.len > 3 then exit("Usage: autohack [addr] [port] [data]\nport = Can equal 0 for none.")
+if params.len == 2 or params.len == 3 then
 	if not is_valid_ip(params[0]) then exit("Error: Invalid IP address.")
 	if (params[1].val < 0 or params[1].val > 65535) then exit("Error: Invalid port number.")
+	if params.len == 3 and typeof(params[2]) != "string" then exit("Error: Last parameter must be a string.")
 
+	data = "pass"
+	if params.len == 3 then
+		data = params[2]
+	end if
+	
 	result = null
-	if params.len == 2 then
+	if params.len == 2 or params.len == 3 then
 		result = get_remote_hacks(params[0], params[1].val)
 	else
 		result = get_remote_hacks(params[0])
@@ -24,28 +30,22 @@ if params.len == 1 or params.len == 2 then
 		print("Address: " + hack["memory"])
 		for value in hack["values"]
 			print(" --> " + value)
-			result = metax.overflow(hack["memory"], value, "pass")
+			result = metax.overflow(hack["memory"], value, data)
 			if not result then continue
 
-			if typeof(result) == "computer" then
-				// Do something with computer type.
-			else if typeof(result) == "file" then
-				// Do something with file type.
-			else if typeof(result) == "shell" then
+			if typeof(result) == "shell" then
 				// Do something with shell type.
 				shell = result
-			else
-				print("Unknown type of exploit result.")
+				break
 			end if
-			if shell then break
 		end for
-		if shell then break
+		if shell != null then break
 	end for
 
 	// Do something with the shell.
 	if shell != null then
 		files = []
-		filenames = ["metaxploit.so", "crypto.so", "autohack"]
+		filenames = ["metaxploit.so", "crypto.so", "autohack", "autolocal", "autoclean"]
 		dirs = ["/lib/", parent_path(launch_path) + "/", parent_path(program_path) + "/"]
 		
 		for filename in filenames
@@ -61,46 +61,22 @@ if params.len == 1 or params.len == 2 then
 		// Transfer files
 		for file in files
 			get_shell.scp(file, "/home/guest", shell)
+			wait(0.1)
 		end for
 		
-		shell.launch("/home/guest/autohack", "")
+		// Chown files
+		pc = shell.host_computer
+		for filename in filenames
+			file = pc.File("/home/guest/" + filename)
+			if not file then continue
+			file.set_owner("guest")
+			file.set_group("guest")
+			wait(0.1)
+		end for
+		
+		shell.start_terminal
 	end if
 else
-	// Local exploit.
-	default = get_shell_type(get_shell)
-	if default["user"] == "root" then
-		print("Starting root shell...")
-		default["shell"].start_terminal
-	end if
-	
-	// Login to normal user account.
-	print("Logging into normal user account...")
-	homedir = default["shell"].host_computer.File("/home")
-	if not homedir then exit("Error: Could not get home directory.")
-	username = null
-	usershell = null
-	for dir in homedir.get_folders
-		if dir.name != "guest" then
-			username = dir.name
-			usershell = get_shell(username, "pass")
-			if usershell != null then break
-		end if
-	end for
-	if not usershell then default["shell"].start_terminal
-	
-	// Get root access.
-	print("Getting root access...")
-	crypto = get_library("crypto.so")
-	if not crypto then exit("Error: Crypto not found on system.")
-	file = usershell.host_computer.File("/etc/passwd")
-	if not file then exit("Error: Cannot get passwd file.")
-	if not file.has_permission("r") then exit("/etc/passwd: Permission denied.")
-	if file.is_binary or file.is_folder then exit("File is either binary or a folder.")
-	roothash = file.get_content.split("\n")[0].split(":")[1]
-	if not roothash then exit("Error: Cannot get root hash.")
-	password = crypto.decipher(roothash)
-	if not password then exit("Error: Failed to decrypt root password.")
-	print("User: root\nPass: " + password)
-	get_shell("root", password).start_terminal
+	exit("Usage: autohack [addr] [port] [data]\nPort can be 0 for router.")
 end if
 
