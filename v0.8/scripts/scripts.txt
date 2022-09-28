@@ -1,0 +1,559 @@
+@@@@@autohack.src
+import_code("/home/5n4k3/source/getlib.src")
+import_code("/home/5n4k3/source/gethacks.src")
+import_code("/home/5n4k3/source/shelltype.src")
+
+if params.len > 3 then exit("Usage: autohack [addr] [port] [data]\nport = Can equal 0 for none.")
+if params.len == 2 or params.len == 3 then
+	if not is_valid_ip(params[0]) then exit("Error: Invalid IP address.")
+	if (params[1].val < 0 or params[1].val > 65535) then exit("Error: Invalid port number.")
+	if params.len == 3 and typeof(params[2]) != "string" then exit("Error: Last parameter must be a string.")
+
+	data = "pass"
+	if params.len == 3 then
+		data = params[2]
+	end if
+	
+	result = null
+	if params.len == 2 or params.len == 3 then
+		result = get_remote_hacks(params[0], params[1].val)
+	else
+		result = get_remote_hacks(params[0])
+	end if
+	if not result then exit()
+
+	shell = null
+	metax = result["dump"]
+	hacks = result["hacks"]
+	if not hacks or hacks.len == 0 then exit()
+
+	for hack in hacks
+		print("Address: " + hack["memory"])
+		for value in hack["values"]
+			print(" --> " + value)
+			result = metax.overflow(hack["memory"], value, data)
+			if not result then continue
+
+			if typeof(result) == "shell" then
+				// Do something with shell type.
+				shell = result
+				break
+			end if
+		end for
+		if shell != null then break
+	end for
+
+	// Do something with the shell.
+	if shell != null then
+		files = []
+		filenames = ["metaxploit.so", "crypto.so", "autohack", "autolocal", "autoclean"]
+		dirs = ["/lib/", parent_path(launch_path) + "/", parent_path(program_path) + "/"]
+		
+		for filename in filenames
+			for dir in dirs
+				if get_shell.host_computer.File(dir + filename) then
+					files = files + [dir + filename]
+					break
+				end if
+			end for
+		end for
+		if files.len == 0 then exit("Error: Cannot get files for transfer.")
+		
+		// Transfer files
+		for file in files
+			get_shell.scp(file, "/home/guest", shell)
+			wait(0.1)
+		end for
+		
+		// Chown files
+		pc = shell.host_computer
+		for filename in filenames
+			file = pc.File("/home/guest/" + filename)
+			if not file then continue
+			file.set_owner("guest")
+			file.set_group("guest")
+			wait(0.1)
+		end for
+		
+		shell.start_terminal
+	end if
+else
+	exit("Usage: autohack [addr] [port] [data]\nPort can be 0 for router.")
+end if
+
+@@@@@@
+@@@@@autowifi.src
+// Gather all network devices into an array.
+array = []
+devices = get_shell.host_computer.network_devices
+for device in devices.split("\n")
+	array = array + [device.split(" ")[0]]
+end for
+
+// List all network devices and get user option.
+option = null
+while not option or (option.val < 0 or option.val > array.len)
+	i = 1
+
+	for device in array
+		if device == "" then continue
+		print(i + ". " + device)
+		i = i + 1
+	end for
+
+	print("0. Exit\n")
+	option = user_input("Enter choice? ")
+end while
+
+// Check if option is exit.
+if option.val == 0 then exit("Quitting wifi autohack...")
+
+netdev = array[option.val - 1]
+networks = get_shell.host_computer.wifi_networks(array[option.val - 1])
+option = null
+while not option or (option.val < 0 or option.val > networks.len)
+	// List all wifi networks.
+	i = 1
+	info = "OPTION BSSID PWR ESSID"
+	
+	for network in networks
+		info = info + "\n" + i + ". " + network
+		i = i + 1
+	end for
+
+	print(format_columns(info))
+	print("0. Exit")
+	
+	option = user_input("Enter choice? ")
+end while
+
+// Check if option is exit.
+if option.val == 0 then exit("Quitting wifi autohack...")
+
+// Process and connect to network.
+bssid = networks[option.val - 1].split(" ")[0]
+essid = networks[option.val - 1].split(" ")[2]
+
+import_code("/home/5n4k3/source/getlib.src")
+
+// Use crypto
+crypt = get_library("crypto.so")
+if not crypt then exit()
+
+// Crack wifi password.
+crypt.airmon("start", netdev)
+crypt.aireplay(bssid, essid, 15000)
+crypt.airmon("stop", netdev)
+pass = crypt.aircrack(home_dir + "/file.cap")
+
+// Connect to wifi network.
+print("Trying to connect to " + essid)
+if not get_shell.host_computer.connect_wifi(netdev, bssid, essid, pass) then
+	print("Failed to connect to " + essid)
+end if
+
+@@@@@@
+@@@@@gethacks.src
+//////////////////////////////////////
+// Description: Get all remote hacks.
+// Returns: Hacks
+//////////////////////////////////////
+get_remote_hacks = function(addr = null, port = 0)
+	result = {}
+	
+	// Run against a remote address/port combination
+	if not is_valid_ip(addr) then
+		print("Error: Invalid IP address given.")
+		return result
+	end if
+	
+	mx = get_library()
+	if not mx then return result
+	
+	netsession = mx.net_use(addr, port)
+	if not netsession then
+		print("Error: Cannot get net session.")
+		return result
+	end if
+	
+	dump = netsession.dump_lib
+	if not dump then
+		print("Error: Cannot dump library.")
+		return result
+	end if
+	print("Getting remote hacks: <color=#A50000><b>" + dump.lib_name + ":" + dump.version + "</b></color>")
+
+	hacks = []	
+	addresses = mx.scan(dump)
+	for mem in addresses
+		pair = {}
+		values = []
+		//print("Address: " + mem)
+		data = mx.scan_address(dump, mem)
+		strings = data.split("Unsafe check: ")
+		for string in strings
+			if string == strings[0] then continue
+			
+			value = string[string.indexOf("<b>")+3:string.indexOf("</b>")]
+			//print(" --> " + value)
+			values = values + [value]
+		end for
+		pair["memory"] = mem
+		pair["values"] = values
+		hacks = hacks + [pair]
+	end for
+	result["dump"] = dump
+	result["hacks"] = hacks
+	return result
+end function
+
+//////////////////////////////////////
+// Description: Get all local hacks.
+// Returns: Hacks
+//////////////////////////////////////
+get_local_hacks = function()
+	filenames = ["net.so", "init.so", "kernel_module.so", "kernel_router.so"]
+	hacks = []
+
+	mx = get_library()
+	if not mx then return hacks
+
+	for filename in filenames
+		dump = mx.load("/lib/" + filename)
+		if not dump then
+			print("Error: Could not find " + filename)
+			continue
+		end if
+		print("Getting local hacks: <color=#A50000><b>" + filename + "</b></color>")
+
+		addresses = mx.scan(dump)
+		for mem in addresses
+			hack = {}
+			values = []
+			//print("Address: " + mem)
+			data = mx.scan_address(dump, mem)
+			strings = data.split("Unsafe check: ")
+			for string in strings
+				if string == strings[0] then continue
+			
+				value = string[string.indexOf("<b>")+3:string.indexOf("</b>")]
+				//print(" --> " + value)
+				values = values + [value]
+			end for
+			hack["metalib"] = filename
+			hack["memory"] = mem
+			hack["values"] = values
+			hacks = hacks + [hack]
+		end for
+	end for
+	return hacks
+end function
+
+@@@@@@
+@@@@@getlib.src
+///////////////////////////////////////////
+// Get local library.
+// Returns: Metalib library.
+///////////////////////////////////////////
+get_library = function(libname = "metaxploit.so")
+	mx = null
+	libpaths = ["/lib/", parent_path(program_path) + "/"]
+	for libpath in libpaths
+		mx = include_lib(libpath + libname)
+		if not mx then
+			print("Warning: Library not found at '" + libpath + "'.")
+		else
+			print("Information: Found library '" + libname + "'.")
+			break
+		end if
+	end for
+	return mx
+end function
+
+@@@@@@
+@@@@@shelltype.src
+////////////////////////////////////////////////////////
+// Function to return shell object with user and type.
+////////////////////////////////////////////////////////
+get_shell_type = function(result)
+	shell = {}
+	if typeof(result) == "shell" then
+		if result.host_computer.touch("/home/guest", "anonymous.dat") then
+			file = result.host_computer.File("/home/guest/anonymous.dat")
+			if not file then
+				print("File doesn't exist.")
+				exit()
+			end if
+			shell["user"] = file.owner
+			shell["shell"] = result
+			file.delete
+		end if
+	end if
+	return shell
+end function
+
+@@@@@@
+@@@@@autolocal.src
+import_code("/home/5n4k3/source/gethacks.src")
+import_code("/home/5n4k3/source/getlib.src")
+import_code("/home/5n4k3/source/loadlib.src")
+import_code("/home/5n4k3/source/shelltype.src")
+
+pass = "pass"
+shells = []
+hacks = get_local_hacks()
+if hacks.len == 0 then exit("Error: Could not get local hacks.")
+for hack in hacks
+	lib = load_library(hack["metalib"])
+	if not lib then continue
+	print("Trying Library: " + lib.lib_name + ":" + lib.version)
+	for value in hack["values"]
+		result = lib.overflow(hack["memory"], value, pass)
+		if not result then continue
+		
+		if typeof(result) == "shell" then
+			shells = shells + [get_shell_type(result)]
+		end if
+	end for
+end for
+
+if shells.len == 0 then exit("Error: No shells found.")
+
+default = null
+while not default
+	i = 1
+	while i < shells.len
+		print(i + ". Shell [" + shells[i]["user"] + "]")
+		i = i + 1
+	end while
+	print("0. Exit")
+	answer = user_input("Enter choice: ")
+	answer = answer.val
+	if answer > 0 and answer < shells.len then
+		default = shells[answer - 1]
+	end if
+	if answer == 0 then exit("You chose to exit instead.")
+end while
+
+// Login to normal user account.
+print("Logging into normal user account...")
+homedir = default["shell"].host_computer.File("/home")
+if not homedir then exit("Error: Could not get home directory.")
+username = null
+usershell = null
+for dir in homedir.get_folders
+	if dir.name != "guest" then
+		username = dir.name
+		usershell = get_shell(username, pass)
+		if usershell != null then break
+	end if
+end for
+if not usershell then
+	print("Password not modified, logging into guest shell.")
+	default["shell"].start_terminal
+end if
+	
+// Get root access.
+print("Getting root access...")
+crypto = get_library("crypto.so")
+if not crypto then exit("Error: Crypto not found on system.")
+file = usershell.host_computer.File("/etc/passwd")
+if not file then exit("Error: Cannot get passwd file.")
+if not file.has_permission("r") then exit("/etc/passwd: Permission denied.")
+if file.is_binary or file.is_folder then exit("File is either binary or a folder.")
+roothash = file.get_content.split("\n")[0].split(":")[1]
+if not roothash then exit("Error: Cannot get root hash.")
+password = crypto.decipher(roothash)
+if not password then exit("Error: Failed to decrypt root password.")
+print("User: root\nPass: " + password)
+get_shell("root", password).start_terminal
+
+@@@@@@
+@@@@@loadlib.src
+///////////////////////////////////////////
+// Load local library.
+// Returns: Metalib library.
+///////////////////////////////////////////
+load_library = function(libname = "kernel_module.so")
+	if not libname then exit("Error: Library name was not given.")
+	if typeof(libname) != "string" then exit("Error: You need to pass a string.")
+	
+	mx = get_library()
+	if not mx then exit()
+	
+	lib = null
+	libpaths = ["/lib/", parent_path(program_path) + "/"]
+	for libpath in libpaths
+		lib = mx.load(libpath + libname)
+		if not lib then
+			print("Warning: Library not found at '" + libpath + "'.")
+		else
+			print("Information: Found library '" + libname + "'.")
+			break
+		end if
+	end for
+	return lib
+end function
+
+@@@@@@
+@@@@@autoclean.src
+if params.len != 0 then exit("Usage: autoclean")
+
+answer = null
+while not answer and (answer != "y" or answer != "Y")
+	answer = user_input("Do you really want to clean the system (Y/N)? ")
+	if answer == "n" or answer == "N" then exit("You chose to quit instead.")
+end while
+
+pc = get_shell.host_computer
+files = ["metaxploit.so", "crypto.so", "autohack", "autolocal", "autoclean"]
+for file in files
+	result = pc.File("/home/guest/" + file)
+	if not result then continue
+	print("Deleting file: " + result.path)
+	result.delete
+	if result.delete then
+		print("Success.")
+	else
+		print("Failed.")
+	end if
+end for
+print("Be sure to clear the log at /var/system.log")
+
+@@@@@@
+@@@@@memmap.src
+///////////////////////////////////////////////////////////
+// get_memory_map() - Gets all local hacks for all major
+// libraries and stores them in a map.
+///////////////////////////////////////////////////////////
+get_memory_map = function()
+	map = {}
+	map["number"] = []
+	map["computer"] = []
+	map["file"] = []
+	map["shell"] = []
+
+	hacks = get_local_hacks()
+	if hacks.len == 0 then exit("No local hacks found.")
+
+	for hack in hacks
+		lib = load_library(hack["metalib"])
+		if not lib then continue
+	
+		print("Library [<color=#A50000>" + hack["metalib"] + "</color>]: " + hack["memory"])
+		for value in hack["values"]
+			result = lib.overflow(hack["memory"], value)
+			if not result then continue
+		
+			data = {}
+			data["name"] = lib.lib_name
+			data["version"] = lib.version
+			data["memory"] = hack["memory"]
+			data["value"] = value
+			data["access"] = "unknown"
+			if typeof(result) == "shell" then
+				data["access"] = get_shell_type(result)["user"]
+			end if
+			data["type"] = typeof(result)
+			map[typeof(result)].push(data)
+		end for
+	end for
+	return map
+end function
+
+@@@@@@
+@@@@@localmap.src
+import_code("/home/5n4k3/source/gethacks.src")
+import_code("/home/5n4k3/source/getlib.src")
+import_code("/home/5n4k3/source/loadlib.src")
+import_code("/home/5n4k3/source/shelltype.src")
+import_code("/home/5n4k3/source/memmap.src")
+
+// Simple script to perform local hacks.
+if params.len != 0 then exit("Usage: <b>" + program_path.split("/")[-1] + "</b>")
+
+map = get_memory_map()
+if map["number"].len == 0 and map["computer"].len == 0 and map["file"].len == 0 and map["shell"].len == 0 then exit("Map is empty.")
+
+pc = get_shell.host_computer
+if not pc.File(home_dir + "/localmap.txt") then
+	pc.touch(home_dir, "localmap.txt")
+end if
+
+file = pc.File(home_dir + "/localmap.txt")
+content = ""
+
+for type in ["number", "computer", "file", "shell"]
+	for item in map[type]
+		content = content + "=====================" + char(10) + "Library: " + item["name"] + char(10) + "Version: " + item["version"] + char(10) + "Memory: " + item["memory"] + char(10) + "Unsecure Value: " + item["value"] + char(10) + "Access: " + item["access"] + char(10) + "Type: " + item["type"] + char(10)
+	end for
+end for
+
+file.set_content(content)
+print("File " + file.name + " saved!")
+
+@@@@@@
+@@@@@localhack.src
+import_code("/home/5n4k3/source/getlib.src")
+import_code("/home/5n4k3/source/loadlib.src")
+
+if params.len < 3 or params.len > 4 then exit("Usage: " + program_path.split("/")[-1] + " [library] [memory] [value] [pass]")
+
+pass = "pass"
+if params.len == 4 then
+	pass = params[3]
+end if
+
+lib = load_library(params[0])
+if not lib then exit()
+
+result = null
+if params.len == 4 then
+	result = lib.overflow(params[1], params[2], params[3])
+else
+	result = lib.overflow(params[1], params[2])
+end if
+if not result then exit("Failed to exploit target.")
+
+if typeof(result) == "shell" then
+	// Get root access.
+	print("Getting root access...")
+	crypto = get_library("crypto.so")
+	if not crypto then exit("Error: Crypto not found on system.")
+	file = result.host_computer.File("/etc/passwd")
+	if not file then exit("Error: Cannot get passwd file.")
+	if not file.has_permission("r") then exit("/etc/passwd: Permission denied.")
+	if file.is_binary or file.is_folder then exit("File is either binary or a folder.")
+	roothash = file.get_content.split("\n")[0].split(":")[1]
+	if not roothash then exit("Error: Cannot get root hash.")
+	password = crypto.decipher(roothash)
+	if not password then exit("Error: Failed to decrypt root password.")
+	print("User: root\nPass: " + password)
+	get_shell("root", password).start_terminal
+end if
+
+@@@@@@
+@@@@@zip.src
+if params.len > 1 then exit("Usage: " + program_path.split("/")[-1] + " [dirname]")
+
+source_path = home_dir + "/source"
+if params.len == 1 then
+	source_path = home_dir + "/" + params[0]
+end if
+source_name = home_dir + "/scripts.txt"
+
+pc = get_shell.host_computer
+source = pc.File(source_name)
+if not source then
+	source = pc.touch(home_dir, source_name.split("/")[-1])
+end if
+
+content = ""
+for file in pc.File(source_path).get_files
+	content = content + "@@@@@" + file.name + char(10) + file.get_content + char(10) + "@@@@@@" + char(10)
+end for
+source.set_content(content)
+print("File " + source.name + " saved!")
+
+@@@@@@
+
