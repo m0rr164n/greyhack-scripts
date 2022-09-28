@@ -81,6 +81,7 @@ else
 	exit("Usage: autohack [addr] [port] [data]\nPort can be 0 for router.")
 end if
 
+
 @@@@@@
 @@@@@autowifi.src
 // Gather all network devices into an array.
@@ -151,6 +152,7 @@ print("Trying to connect to " + essid)
 if not get_shell.host_computer.connect_wifi(netdev, bssid, essid, pass) then
 	print("Failed to connect to " + essid)
 end if
+
 
 @@@@@@
 @@@@@gethacks.src
@@ -249,6 +251,7 @@ get_local_hacks = function()
 	return hacks
 end function
 
+
 @@@@@@
 @@@@@getlib.src
 ///////////////////////////////////////////
@@ -269,6 +272,7 @@ get_library = function(libname = "metaxploit.so")
 	end for
 	return mx
 end function
+
 
 @@@@@@
 @@@@@shelltype.src
@@ -291,6 +295,7 @@ get_shell_type = function(result)
 	end if
 	return shell
 end function
+
 
 @@@@@@
 @@@@@autolocal.src
@@ -368,6 +373,7 @@ if not password then exit("Error: Failed to decrypt root password.")
 print("User: root\nPass: " + password)
 get_shell("root", password).start_terminal
 
+
 @@@@@@
 @@@@@loadlib.src
 ///////////////////////////////////////////
@@ -395,6 +401,7 @@ load_library = function(libname = "kernel_module.so")
 	return lib
 end function
 
+
 @@@@@@
 @@@@@autoclean.src
 if params.len != 0 then exit("Usage: autoclean")
@@ -419,6 +426,7 @@ for file in files
 	end if
 end for
 print("Be sure to clear the log at /var/system.log")
+
 
 @@@@@@
 @@@@@memmap.src
@@ -461,6 +469,7 @@ get_memory_map = function()
 	return map
 end function
 
+
 @@@@@@
 @@@@@localmap.src
 import_code("/home/5n4k3/source/gethacks.src")
@@ -491,6 +500,7 @@ end for
 
 file.set_content(content)
 print("File " + file.name + " saved!")
+
 
 @@@@@@
 @@@@@localhack.src
@@ -532,6 +542,7 @@ if typeof(result) == "shell" then
 	get_shell("root", password).start_terminal
 end if
 
+
 @@@@@@
 @@@@@zip.src
 if params.len > 1 then exit("Usage: " + program_path.split("/")[-1] + " [dirname]")
@@ -545,7 +556,9 @@ source_name = home_dir + "/scripts.txt"
 pc = get_shell.host_computer
 source = pc.File(source_name)
 if not source then
-	source = pc.touch(home_dir, source_name.split("/")[-1])
+	pc.touch(home_dir, source_name.split("/")[-1])
+	source = pc.File(source_name)
+	if not source then exit("Error: Could not create 'scripts.txt'.")
 end if
 
 content = ""
@@ -554,6 +567,102 @@ for file in pc.File(source_path).get_files
 end for
 source.set_content(content)
 print("File " + source.name + " saved!")
+
+
+@@@@@@
+@@@@@getinfo.src
+import_code("/home/5n4k3/src/gethacks.src")
+import_code("/home/5n4k3/src/getlib.src")
+
+if params.len != 3 then exit("Usage: " + program_path.split("/")[-1] + " [ip] [port] [bank|mail|passwd]")
+if not is_valid_ip(params[0]) then exit("Error: Invalid IP address given.")
+if params[1].val < 0 or params[1].val > 65535 then exit("Error: Invalid port given.")
+if params[2] != "bank" and params[2] != "mail" and params[2] != "passwd" then exit("Error: Invalid command given.")
+
+result = get_remote_hacks(params[0], params[1].val)
+if not result then exit()
+
+lib = result["dump"]
+hacks = result["hacks"]
+for hack in hacks
+	for value in hack["values"]
+		result = lib.overflow(hack["memory"], value)
+		if not result then continue
+		
+		if typeof(result) == "file" then
+			// Do something with the file.
+		else if typeof(result) == "computer" then
+			// Get bank or mail or passwd file.
+			if params[2] == "bank" then
+				home = result.File("/home")
+				for folder in home.get_folders
+					if folder.name == "guest" then continue
+					for config in folder.get_folders
+						if config.name != "Config" then continue
+						for file in config.get_files
+							if file.name != "Bank.txt" then continue
+							if not file.has_permission("r") then
+								print("Bank file permission denied.")
+								continue
+							end if
+							if file.is_binary then
+								print("Bank file was binary.")
+								continue
+							end if
+							if file.is_folder then
+								print("Bank file was a folder.")
+								continue
+							end if
+							print(file.get_content)
+						end for
+					end for
+				end for
+			else if params[2] == "mail" then
+				home = result.File("/home")
+				for folder in home.get_folders
+					if folder.name == "guest" then continue
+					for config in folder.get_folders
+						if config.name != "Config" then continue
+						for file in config.get_files
+							if file.name != "Mail.txt" then continue
+							if not file.has_permission("r") then
+								print("Mail file permission denied.")
+								continue
+							end if
+							if file.is_binary then
+								print("Mail file was binary.")
+								continue
+							end if
+							if file.is_folder then
+								print("Mail file was a folder.")
+								continue
+							end if
+							print(file.get_content)
+						end for
+					end for
+				end for
+			else if params[2] == "passwd" then
+				file = result.File("/etc/passwd")
+				if file != null then
+					if not file.has_permission("r") then
+						print("Password file permission denied.")
+						continue
+					end if
+					if file.is_binary then
+						print("Password file was binary.")
+						continue
+					end if
+					if file.is_folder then
+						print("Password file was a folder.")
+						continue
+					end if
+					print(file.get_content)
+				end if
+			end if
+		end if
+	end for
+end for
+exit("Program ended.")
 
 @@@@@@
 

@@ -1,0 +1,93 @@
+import_code("/home/5n4k3/src/gethacks.src")
+import_code("/home/5n4k3/src/getlib.src")
+
+if params.len != 3 then exit("Usage: " + program_path.split("/")[-1] + " [ip] [port] [bank|mail|passwd]")
+if not is_valid_ip(params[0]) then exit("Error: Invalid IP address given.")
+if params[1].val < 0 or params[1].val > 65535 then exit("Error: Invalid port given.")
+if params[2] != "bank" and params[2] != "mail" and params[2] != "passwd" then exit("Error: Invalid command given.")
+
+result = get_remote_hacks(params[0], params[1].val)
+if not result then exit()
+
+lib = result["dump"]
+hacks = result["hacks"]
+for hack in hacks
+	for value in hack["values"]
+		result = lib.overflow(hack["memory"], value)
+		if not result then continue
+		
+		if typeof(result) == "file" then
+			// Do something with the file.
+		else if typeof(result) == "computer" then
+			// Get bank or mail or passwd file.
+			if params[2] == "bank" then
+				home = result.File("/home")
+				for folder in home.get_folders
+					if folder.name == "guest" then continue
+					for config in folder.get_folders
+						if config.name != "Config" then continue
+						for file in config.get_files
+							if file.name != "Bank.txt" then continue
+							if not file.has_permission("r") then
+								print("Bank file permission denied.")
+								continue
+							end if
+							if file.is_binary then
+								print("Bank file was binary.")
+								continue
+							end if
+							if file.is_folder then
+								print("Bank file was a folder.")
+								continue
+							end if
+							print(file.get_content)
+						end for
+					end for
+				end for
+			else if params[2] == "mail" then
+				home = result.File("/home")
+				for folder in home.get_folders
+					if folder.name == "guest" then continue
+					for config in folder.get_folders
+						if config.name != "Config" then continue
+						for file in config.get_files
+							if file.name != "Mail.txt" then continue
+							if not file.has_permission("r") then
+								print("Mail file permission denied.")
+								continue
+							end if
+							if file.is_binary then
+								print("Mail file was binary.")
+								continue
+							end if
+							if file.is_folder then
+								print("Mail file was a folder.")
+								continue
+							end if
+							print(file.get_content)
+						end for
+					end for
+				end for
+			else if params[2] == "passwd" then
+				file = result.File("/etc/passwd")
+				if file != null then
+					if not file.has_permission("r") then
+						print("Password file permission denied.")
+						continue
+					end if
+					if file.is_binary then
+						print("Password file was binary.")
+						continue
+					end if
+					if file.is_folder then
+						print("Password file was a folder.")
+						continue
+					end if
+					print(file.get_content)
+				end if
+			end if
+		end if
+	end for
+end for
+exit("Program ended.")
+

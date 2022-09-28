@@ -9,7 +9,9 @@ source_name = home_dir + "/scripts.txt"
 pc = get_shell.host_computer
 source = pc.File(source_name)
 if not source then
-	source = pc.touch(home_dir, source_name.split("/")[-1])
+	pc.touch(home_dir, source_name.split("/")[-1])
+	source = pc.File(source_name)
+	if not source then exit("Error: Could not create 'scripts.txt'.")
 end if
 
 content = ""
