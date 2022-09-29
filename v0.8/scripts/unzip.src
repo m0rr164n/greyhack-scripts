@@ -1,6 +1,6 @@
 if params.len > 1 then exit("Usage: " + program_path.split("/")[-1] + " [dirname]")
 
-source_path = home_dir + "/src"
+source_path = home_dir + "/source"
 if params.len == 1 then
 	source_path = home_dir + "/" + params[0]
 end if

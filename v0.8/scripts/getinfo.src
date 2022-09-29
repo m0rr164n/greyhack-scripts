@@ -1,12 +1,12 @@
-import_code("/home/5n4k3/src/gethacks.src")
-import_code("/home/5n4k3/src/getlib.src")
+import_code("/home/5n4k3/source/gethacks.src")
+import_code("/home/5n4k3/source/getlib.src")
 
 if params.len != 3 then exit("Usage: " + program_path.split("/")[-1] + " [ip] [lan_ip] [bank|mail|passwd]")
 if not is_valid_ip(params[0]) then exit("Error: Invalid IP address given.")
-if params[1].val < 0 or params[1].val > 65535 then exit("Error: Invalid port number.")
+if not is_valid_ip(params[1]) then exit("Error: Invalid port number.")
 if params[2] != "bank" and params[2] != "mail" and params[2] != "passwd" then exit("Error: Invalid command given.")
 
-result = get_remote_hacks(params[0], params[1].val)
+result = get_remote_hacks(params[0])
 if not result then exit()
 
 files = []
@@ -14,7 +14,7 @@ lib = result["dump"]
 hacks = result["hacks"]
 for hack in hacks
 	for value in hack["values"]
-		result = lib.overflow(hack["memory"], value)
+		result = lib.overflow(hack["memory"], value, params[1])
 		if not result then continue
 		
 		if typeof(result) == "file" then

@@ -1,7 +1,7 @@
 @@@@@autohack.src
-import_code("/home/5n4k3/source/getlib.src")
-import_code("/home/5n4k3/source/gethacks.src")
-import_code("/home/5n4k3/source/shelltype.src")
+import_code("/home/<user>/source/getlib.src")
+import_code("/home/<user>/source/gethacks.src")
+import_code("/home/<user>/source/shelltype.src")
 
 if params.len > 3 then exit("Usage: autohack [addr] [port] [data]\nport = Can equal 0 for none.")
 if params.len == 2 or params.len == 3 then
@@ -34,7 +34,7 @@ if params.len == 2 or params.len == 3 then
 			result = metax.overflow(hack["memory"], value, data)
 			if not result then continue
 
-			if typeof(result) == "shell" then
+			if not shell and typeof(result) == "shell" then
 				// Do something with shell type.
 				shell = result
 				break
@@ -47,7 +47,7 @@ if params.len == 2 or params.len == 3 then
 	if shell != null then
 		files = []
 		filenames = ["metaxploit.so", "crypto.so", "autohack", "autolocal", "autoclean"]
-		dirs = ["/lib/", parent_path(launch_path) + "/", parent_path(program_path) + "/"]
+		dirs = ["/lib/", "/bin/", "/usr/bin/", parent_path(launch_path) + "/", parent_path(program_path) + "/"]
 		
 		for filename in filenames
 			for dir in dirs
@@ -299,10 +299,10 @@ end function
 
 @@@@@@
 @@@@@autolocal.src
-import_code("/home/5n4k3/source/gethacks.src")
-import_code("/home/5n4k3/source/getlib.src")
-import_code("/home/5n4k3/source/loadlib.src")
-import_code("/home/5n4k3/source/shelltype.src")
+import_code("/home/<user>/source/gethacks.src")
+import_code("/home/<user>/source/getlib.src")
+import_code("/home/<user>/source/loadlib.src")
+import_code("/home/<user>/source/shelltype.src")
 
 pass = "pass"
 shells = []
@@ -472,11 +472,11 @@ end function
 
 @@@@@@
 @@@@@localmap.src
-import_code("/home/5n4k3/source/gethacks.src")
-import_code("/home/5n4k3/source/getlib.src")
-import_code("/home/5n4k3/source/loadlib.src")
-import_code("/home/5n4k3/source/shelltype.src")
-import_code("/home/5n4k3/source/memmap.src")
+import_code("/home/<user>/source/gethacks.src")
+import_code("/home/<user>/source/getlib.src")
+import_code("/home/<user>/source/loadlib.src")
+import_code("/home/<user>/source/shelltype.src")
+import_code("/home/<user>/source/memmap.src")
 
 // Simple script to perform local hacks.
 if params.len != 0 then exit("Usage: <b>" + program_path.split("/")[-1] + "</b>")
@@ -504,8 +504,8 @@ print("File " + file.name + " saved!")
 
 @@@@@@
 @@@@@localhack.src
-import_code("/home/5n4k3/source/getlib.src")
-import_code("/home/5n4k3/source/loadlib.src")
+import_code("/home/<user>/source/getlib.src")
+import_code("/home/<user>/source/loadlib.src")
 
 if params.len < 3 or params.len > 4 then exit("Usage: " + program_path.split("/")[-1] + " [library] [memory] [value] [pass]")
 
@@ -572,15 +572,15 @@ print("File " + source.name + " saved!")
 
 @@@@@@
 @@@@@getinfo.src
-import_code("/home/5n4k3/src/gethacks.src")
-import_code("/home/5n4k3/src/getlib.src")
+import_code("/home/<user>/source/gethacks.src")
+import_code("/home/<user>/source/getlib.src")
 
 if params.len != 3 then exit("Usage: " + program_path.split("/")[-1] + " [ip] [lan_ip] [bank|mail|passwd]")
 if not is_valid_ip(params[0]) then exit("Error: Invalid IP address given.")
-if params[1].val < 0 or params[1].val > 65535 then exit("Error: Invalid port number.")
+if not is_valid_ip(params[1]) then exit("Error: Invalid port number.")
 if params[2] != "bank" and params[2] != "mail" and params[2] != "passwd" then exit("Error: Invalid command given.")
 
-result = get_remote_hacks(params[0], params[1].val)
+result = get_remote_hacks(params[0])
 if not result then exit()
 
 files = []
@@ -588,7 +588,7 @@ lib = result["dump"]
 hacks = result["hacks"]
 for hack in hacks
 	for value in hack["values"]
-		result = lib.overflow(hack["memory"], value)
+		result = lib.overflow(hack["memory"], value, params[1])
 		if not result then continue
 		
 		if typeof(result) == "file" then
@@ -817,8 +817,8 @@ exit("Program ended.")
 
 @@@@@@
 @@@@@getports.src
-import_code("/home/5n4k3/src/gethacks.src")
-import_code("/home/5n4k3/src/getlib.src")
+import_code("/home/<user>/source/gethacks.src")
+import_code("/home/<user>/source/getlib.src")
 
 if params.len < 1 or params.len > 2 then exit("Usage: " + program_path.split("/")[-1] + " [ip] [(opt) ip]")
 if not is_valid_ip(params[0]) then exit("Error: Invalid IP address given for first parameter.")
@@ -894,12 +894,26 @@ source_path = home_dir + "/" + params[0]
 source_dir = get_shell.host_computer.File(source_path)
 if not source_dir then exit("Error: Could not find source path.")
 
-sources = ["autohack.src", "autolocal.src", "autoclean.src", "autowifi.src", "localhack.src", "localmap.src", "getinfo.src", "getports.src", "zip.src"]
-for source in sources
-	if get_shell.build(source_path + "/" + source, "/bin") then
-		print("Build of " + source_path + "/" + source + " successful.")
+sources = [["autohack.src", "autolocal.src", "autoclean.src"], ["autowifi.src", "localhack.src", "localmap.src", "getinfo.src", "getports.src", "zip.src"]]
+
+for source in sources[0]
+	get_shell.build(source_dir.path + "/" + source, home_dir)
+	file = get_shell.host_computer.File(source_dir.path + "/" + source)
+	if file != null then
+		print("Build of " + source_dir.path + "/" + source + " successful.")
 	else
-		print("Build of " + source_path + "/" + source + " failed.")
+		print("Build of " + source_dir.path + "/" + source + " failed.")
+	end if
+	wait(0.1)
+end for
+
+for source in sources[1]
+	get_shell.build(source_dir.path + "/" + source, "/bin")
+	file = get_shell.host_computer.File(source_dir.path + "/" + source)
+	if file != null then
+		print("Build of " + source_dir.path + "/" + source + " successful.")
+	else
+		print("Build of " + source_dir.path + "/" + source + " failed.")
 	end if
 	wait(0.1)
 end for
