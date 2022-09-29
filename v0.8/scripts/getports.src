@@ -1,5 +1,5 @@
-import_code("/home/5n4k3/src/gethacks.src")
-import_code("/home/5n4k3/src/getlib.src")
+import_code("/home/5n4k3/source/gethacks.src")
+import_code("/home/5n4k3/source/getlib.src")
 
 if params.len < 1 or params.len > 2 then exit("Usage: " + program_path.split("/")[-1] + " [ip] [(opt) ip]")
 if not is_valid_ip(params[0]) then exit("Error: Invalid IP address given for first parameter.")

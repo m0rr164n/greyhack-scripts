@@ -1,7 +1,7 @@
 @@@@@autohack.src
-import_code("/home/<user>/source/getlib.src")
-import_code("/home/<user>/source/gethacks.src")
-import_code("/home/<user>/source/shelltype.src")
+import_code("/home/5n4k3/source/getlib.src")
+import_code("/home/5n4k3/source/gethacks.src")
+import_code("/home/5n4k3/source/shelltype.src")
 
 if params.len > 3 then exit("Usage: autohack [addr] [port] [data]\nport = Can equal 0 for none.")
 if params.len == 2 or params.len == 3 then
@@ -299,10 +299,10 @@ end function
 
 @@@@@@
 @@@@@autolocal.src
-import_code("/home/<user>/source/gethacks.src")
-import_code("/home/<user>/source/getlib.src")
-import_code("/home/<user>/source/loadlib.src")
-import_code("/home/<user>/source/shelltype.src")
+import_code("/home/5n4k3/source/gethacks.src")
+import_code("/home/5n4k3/source/getlib.src")
+import_code("/home/5n4k3/source/loadlib.src")
+import_code("/home/5n4k3/source/shelltype.src")
 
 pass = "pass"
 shells = []
@@ -472,11 +472,11 @@ end function
 
 @@@@@@
 @@@@@localmap.src
-import_code("/home/<user>/source/gethacks.src")
-import_code("/home/<user>/source/getlib.src")
-import_code("/home/<user>/source/loadlib.src")
-import_code("/home/<user>/source/shelltype.src")
-import_code("/home/<user>/source/memmap.src")
+import_code("/home/5n4k3/source/gethacks.src")
+import_code("/home/5n4k3/source/getlib.src")
+import_code("/home/5n4k3/source/loadlib.src")
+import_code("/home/5n4k3/source/shelltype.src")
+import_code("/home/5n4k3/source/memmap.src")
 
 // Simple script to perform local hacks.
 if params.len != 0 then exit("Usage: <b>" + program_path.split("/")[-1] + "</b>")
@@ -504,8 +504,8 @@ print("File " + file.name + " saved!")
 
 @@@@@@
 @@@@@localhack.src
-import_code("/home/<user>/source/getlib.src")
-import_code("/home/<user>/source/loadlib.src")
+import_code("/home/5n4k3/source/getlib.src")
+import_code("/home/5n4k3/source/loadlib.src")
 
 if params.len < 3 or params.len > 4 then exit("Usage: " + program_path.split("/")[-1] + " [library] [memory] [value] [pass]")
 
@@ -572,8 +572,8 @@ print("File " + source.name + " saved!")
 
 @@@@@@
 @@@@@getinfo.src
-import_code("/home/<user>/source/gethacks.src")
-import_code("/home/<user>/source/getlib.src")
+import_code("/home/5n4k3/source/gethacks.src")
+import_code("/home/5n4k3/source/getlib.src")
 
 if params.len != 3 then exit("Usage: " + program_path.split("/")[-1] + " [ip] [lan_ip] [bank|mail|passwd]")
 if not is_valid_ip(params[0]) then exit("Error: Invalid IP address given.")
@@ -673,21 +673,19 @@ for hack in hacks
 				// Get the passwd file if it has access.
 				for file in homedir.get_files
 					if file.name == "passwd" then
-						if files.len == 0 then
-							files.push(file)
-						else
-							for test in files
-								found = false
-								if test.name == file.name then
-									found = true
-									break
-								end if
-								if not found then
-									files.push(file)
-									break
-								end if
-							end for
+						if not file.has_permission("r") then
+							print("Password file permission denied.")
+							continue
 						end if
+						if file.is_binary then
+							print("Password file was binary.")
+							continue
+						end if
+						if file.is_folder then
+							print("Password file was a folder.")
+							continue
+						end if						
+						exit(file.get_content)
 					end if
 				end for
 			end if
@@ -717,15 +715,9 @@ for hack in hacks
 								files.push(file)
 							else
 								for test in files
-									found = false
-									if test.name == file.name then
-										found = true
-										break
-									end if
-									if not found then
-										files.push(file)
-										break
-									end if
+									if test.name != file.name then continue
+									files.push(file)
+									break
 								end for
 							end if
 						end for
@@ -755,15 +747,9 @@ for hack in hacks
 								files.push(file)
 							else
 								for test in files
-									found = false
-									if test.name == file.name then
-										found = true
-										break
-									end if
-									if not found then
-										files.push(file)
-										break
-									end if
+									if test.name != file.name then continue
+									files.push(file)
+									break
 								end for
 							end if
 						end for
@@ -784,21 +770,7 @@ for hack in hacks
 						print("Password file was a folder.")
 						continue
 					end if
-					if files.len == 0 then
-						files.push(file)
-					else
-						for test in files
-							found = false
-							if test.name == file.name then
-								found = true
-								break
-							end if
-							if not found then
-								files.push(file)
-								break
-							end if
-						end for
-					end if
+					exit(file.get_content)
 				end if
 			end if
 		end if
@@ -817,8 +789,8 @@ exit("Program ended.")
 
 @@@@@@
 @@@@@getports.src
-import_code("/home/<user>/source/gethacks.src")
-import_code("/home/<user>/source/getlib.src")
+import_code("/home/5n4k3/source/gethacks.src")
+import_code("/home/5n4k3/source/getlib.src")
 
 if params.len < 1 or params.len > 2 then exit("Usage: " + program_path.split("/")[-1] + " [ip] [(opt) ip]")
 if not is_valid_ip(params[0]) then exit("Error: Invalid IP address given for first parameter.")

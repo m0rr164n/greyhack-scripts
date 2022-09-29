@@ -99,21 +99,19 @@ for hack in hacks
 				// Get the passwd file if it has access.
 				for file in homedir.get_files
 					if file.name == "passwd" then
-						if files.len == 0 then
-							files.push(file)
-						else
-							for test in files
-								found = false
-								if test.name == file.name then
-									found = true
-									break
-								end if
-								if not found then
-									files.push(file)
-									break
-								end if
-							end for
+						if not file.has_permission("r") then
+							print("Password file permission denied.")
+							continue
 						end if
+						if file.is_binary then
+							print("Password file was binary.")
+							continue
+						end if
+						if file.is_folder then
+							print("Password file was a folder.")
+							continue
+						end if						
+						exit(file.get_content)
 					end if
 				end for
 			end if
@@ -143,15 +141,9 @@ for hack in hacks
 								files.push(file)
 							else
 								for test in files
-									found = false
-									if test.name == file.name then
-										found = true
-										break
-									end if
-									if not found then
-										files.push(file)
-										break
-									end if
+									if test.name != file.name then continue
+									files.push(file)
+									break
 								end for
 							end if
 						end for
@@ -181,15 +173,9 @@ for hack in hacks
 								files.push(file)
 							else
 								for test in files
-									found = false
-									if test.name == file.name then
-										found = true
-										break
-									end if
-									if not found then
-										files.push(file)
-										break
-									end if
+									if test.name != file.name then continue
+									files.push(file)
+									break
 								end for
 							end if
 						end for
@@ -210,21 +196,7 @@ for hack in hacks
 						print("Password file was a folder.")
 						continue
 					end if
-					if files.len == 0 then
-						files.push(file)
-					else
-						for test in files
-							found = false
-							if test.name == file.name then
-								found = true
-								break
-							end if
-							if not found then
-								files.push(file)
-								break
-							end if
-						end for
-					end if
+					exit(file.get_content)
 				end if
 			end if
 		end if
