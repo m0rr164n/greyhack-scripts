@@ -7,7 +7,7 @@ while not answer and (answer != "y" or answer != "Y")
 end while
 
 pc = get_shell.host_computer
-files = ["metaxploit.so", "crypto.so", "autohack", "autolocal", "autoclean"]
+files = ["metaxploit.so", "crypto.so", "autohack", "autolocal", "autoclean", "getports", "getinfo"]
 for file in files
 	result = pc.File("/home/guest/" + file)
 	if not result then continue

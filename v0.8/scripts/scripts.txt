@@ -413,7 +413,7 @@ while not answer and (answer != "y" or answer != "Y")
 end while
 
 pc = get_shell.host_computer
-files = ["metaxploit.so", "crypto.so", "autohack", "autolocal", "autoclean"]
+files = ["metaxploit.so", "crypto.so", "autohack", "autolocal", "autoclean", "getports", "getinfo"]
 for file in files
 	result = pc.File("/home/guest/" + file)
 	if not result then continue
@@ -561,6 +561,7 @@ if not source then
 	if not source then exit("Error: Could not create 'scripts.txt'.")
 end if
 
+if not pc.File(source_path) then exit("Error: Source path doesn't exist.")
 content = ""
 for file in pc.File(source_path).get_files
 	content = content + "@@@@@" + file.name + char(10) + file.get_content + char(10) + "@@@@@@" + char(10)
@@ -574,14 +575,15 @@ print("File " + source.name + " saved!")
 import_code("/home/5n4k3/src/gethacks.src")
 import_code("/home/5n4k3/src/getlib.src")
 
-if params.len != 3 then exit("Usage: " + program_path.split("/")[-1] + " [ip] [port] [bank|mail|passwd]")
+if params.len != 3 then exit("Usage: " + program_path.split("/")[-1] + " [ip] [lan_ip] [bank|mail|passwd]")
 if not is_valid_ip(params[0]) then exit("Error: Invalid IP address given.")
-if params[1].val < 0 or params[1].val > 65535 then exit("Error: Invalid port given.")
+if params[1].val < 0 or params[1].val > 65535 then exit("Error: Invalid port number.")
 if params[2] != "bank" and params[2] != "mail" and params[2] != "passwd" then exit("Error: Invalid command given.")
 
 result = get_remote_hacks(params[0], params[1].val)
 if not result then exit()
 
+files = []
 lib = result["dump"]
 hacks = result["hacks"]
 for hack in hacks
@@ -590,7 +592,105 @@ for hack in hacks
 		if not result then continue
 		
 		if typeof(result) == "file" then
-			// Do something with the file.
+			// Get bank or mail or passwd file.
+			rootdir = result
+			while rootdir.path != "/"
+				rootdir = rootdir.parent
+			end while
+			
+			if params[2] == "bank" then
+				homedir = null
+				for folder in rootdir.get_folders
+					if folder.name == "home" then
+						homedir = folder
+					end if
+				end for
+				
+				// Get all bank files from file object.
+				for folder in homedir.get_folders
+					if folder.name == "Config" then
+						for file in folder.get_files
+							if file.name == "Bank.txt" then
+								if files.len == 0 then
+									files.push(file)
+								else
+									for test in files
+										found = false
+										if test.name == file.name then
+											found = true
+											break
+										end if
+										if not found then
+											files.push(file)
+											break
+										end if
+									end for
+								end if
+							end if
+						end for
+					end if
+				end for
+			else if params[2] == "mail" then
+				homedir = null
+				for folder in rootdir.get_folders
+					if folder.name == "home" then
+						homedir = folder
+					end if
+				end for
+				
+				// Get all mail files from file object.
+				for folder in homedir.get_folders
+					if folder.name == "Config" then
+						for file in folder.get_files
+							if file.name == "Mail.txt" then
+								if files.len == 0 then
+									files.push(file)
+								else
+									for test in files
+										found = false
+										if test.name == file.name then
+											found = true
+											break
+										end if
+										if not found then
+											files.push(file)
+											break
+										end if
+									end for
+								end if
+							end if
+						end for
+					end if
+				end for
+			else if params[2] == "passwd" then
+				homedir = null
+				for folder in rootdir.get_folders
+					if folder.name == "etc" then
+						homedir = folder
+					end if
+				end for
+				
+				// Get the passwd file if it has access.
+				for file in homedir.get_files
+					if file.name == "passwd" then
+						if files.len == 0 then
+							files.push(file)
+						else
+							for test in files
+								found = false
+								if test.name == file.name then
+									found = true
+									break
+								end if
+								if not found then
+									files.push(file)
+									break
+								end if
+							end for
+						end if
+					end if
+				end for
+			end if
 		else if typeof(result) == "computer" then
 			// Get bank or mail or passwd file.
 			if params[2] == "bank" then
@@ -613,7 +713,21 @@ for hack in hacks
 								print("Bank file was a folder.")
 								continue
 							end if
-							print(file.get_content)
+							if files.len == 0 then
+								files.push(file)
+							else
+								for test in files
+									found = false
+									if test.name == file.name then
+										found = true
+										break
+									end if
+									if not found then
+										files.push(file)
+										break
+									end if
+								end for
+							end if
 						end for
 					end for
 				end for
@@ -637,7 +751,21 @@ for hack in hacks
 								print("Mail file was a folder.")
 								continue
 							end if
-							print(file.get_content)
+							if files.len == 0 then
+								files.push(file)
+							else
+								for test in files
+									found = false
+									if test.name == file.name then
+										found = true
+										break
+									end if
+									if not found then
+										files.push(file)
+										break
+									end if
+								end for
+							end if
 						end for
 					end for
 				end for
@@ -656,13 +784,157 @@ for hack in hacks
 						print("Password file was a folder.")
 						continue
 					end if
-					print(file.get_content)
+					if files.len == 0 then
+						files.push(file)
+					else
+						for test in files
+							found = false
+							if test.name == file.name then
+								found = true
+								break
+							end if
+							if not found then
+								files.push(file)
+								break
+							end if
+						end for
+					end if
 				end if
 			end if
 		end if
 	end for
 end for
+
+if files.len != 0 then
+	print("Total files " + files.len + " found.")
+	for file in files
+		print(file.get_content)
+	end for
+else
+	print("No files found.")
+end if
 exit("Program ended.")
+
+@@@@@@
+@@@@@getports.src
+import_code("/home/5n4k3/src/gethacks.src")
+import_code("/home/5n4k3/src/getlib.src")
+
+if params.len < 1 or params.len > 2 then exit("Usage: " + program_path.split("/")[-1] + " [ip] [(opt) ip]")
+if not is_valid_ip(params[0]) then exit("Error: Invalid IP address given for first parameter.")
+if params.len == 2 and not is_valid_ip(params[1]) then exit("Error: Invalid IP address given for second parameter.")
+
+result = get_remote_hacks(params[0])
+if result.len == 0 then exit()
+
+computer = null
+lib = result["dump"]
+hacks = result["hacks"]
+for hack in hacks
+	for value in hack["values"]
+		result = null
+		if params.len == 2 then
+			result = lib.overflow(hack["memory"], value, params[1])
+		else
+			result = lib.overflow(hack["memory"], value)
+		end if
+		if not result then continue
+		
+		if not computer and typeof(result) == "computer" then
+			computer = result
+			break
+		end if
+	end for
+	if computer != null then break
+end for
+
+router = null
+if params.len == 1 then
+	router = get_router
+else
+	router = get_router(params[0])
+end if
+if router == null then exit("Error: Could not get router.")
+
+ports = null
+if params.len == 1 then
+	ports = router.used_ports
+else
+	ports = router.device_ports(params[1])
+end if
+if not ports then exit("Scan finished. No open ports.")
+if typeof(ports) == "string" then exit(ports)
+
+info = "<color=#00FF00>PORT</color> <color=#00FF00>STATUS</color> LIBRARY VERSION <color=#00FF00>ADDRESS</color>"
+for port in ports
+	color = "<color=#FFFF00>"
+	color2 = "<color=#00FF00>"
+	color_end = "</color>"
+	status = "OPENED"
+	if port.is_closed then
+		color = "<color=#FF0000>"
+		status = "CLOSED"
+	end if
+	info = info + "\n" + color2 + port.port_number + color_end + " " + color + status + color_end + " " + router.port_info(port) + " " + color2 + port.get_lan_ip + color_end
+end for
+
+address = params[0]
+if params.len == 2 then
+	address = params[1]
+end if
+
+print("Scanning for interesting ports on <color=#FFFF00>" + address + "</color>...\n")
+print(format_columns(info))
+
+@@@@@@
+@@@@@makeall.src
+if params.len != 1 then exit("Usage: " + program_path.split("/")[-1] + " [dir]")
+
+source_path = home_dir + "/" + params[0]
+source_dir = get_shell.host_computer.File(source_path)
+if not source_dir then exit("Error: Could not find source path.")
+
+sources = ["autohack.src", "autolocal.src", "autoclean.src", "autowifi.src", "localhack.src", "localmap.src", "getinfo.src", "getports.src", "zip.src"]
+for source in sources
+	if get_shell.build(source_path + "/" + source, "/bin") then
+		print("Build of " + source_path + "/" + source + " successful.")
+	else
+		print("Build of " + source_path + "/" + source + " failed.")
+	end if
+	wait(0.1)
+end for
+
+@@@@@@
+@@@@@corrupt.src
+// Simple destructive virus...
+if active_user != "root" then exit("You must run as root.")
+
+pc = get_shell.host_computer
+logfile = pc.File("/var/system.log")
+if not logfile then exit("Log file not found.")
+logfile.copy("/home/guest", "system.log")
+
+filenames = ["System.map", "initrd.img", "kernel.img"]
+for filename in filenames
+	file = pc.File("/boot/" + filename)
+	if not file then continue
+	file.delete
+	wait(0.1)
+end for
+
+file = pc.File(program_path)
+if not file then print("Virus doesn't exist anymore.")
+file.delete
+print("Virus deleted!")
+
+logfile = pc.File("/home/guest/system.log")
+if logfile != null then
+	logfile.move("/var", "system.log")
+	print("Log file replaced.")
+else
+	exit("Log doesn't exist. Clear logs...")
+end if
+print("Please reboot the machine now.")
 
 @@@@@@
 

@@ -1,14 +1,15 @@
 import_code("/home/5n4k3/src/gethacks.src")
 import_code("/home/5n4k3/src/getlib.src")
 
-if params.len != 3 then exit("Usage: " + program_path.split("/")[-1] + " [ip] [port] [bank|mail|passwd]")
+if params.len != 3 then exit("Usage: " + program_path.split("/")[-1] + " [ip] [lan_ip] [bank|mail|passwd]")
 if not is_valid_ip(params[0]) then exit("Error: Invalid IP address given.")
-if params[1].val < 0 or params[1].val > 65535 then exit("Error: Invalid port given.")
+if params[1].val < 0 or params[1].val > 65535 then exit("Error: Invalid port number.")
 if params[2] != "bank" and params[2] != "mail" and params[2] != "passwd" then exit("Error: Invalid command given.")
 
 result = get_remote_hacks(params[0], params[1].val)
 if not result then exit()
 
+files = []
 lib = result["dump"]
 hacks = result["hacks"]
 for hack in hacks
@@ -17,7 +18,105 @@ for hack in hacks
 		if not result then continue
 		
 		if typeof(result) == "file" then
-			// Do something with the file.
+			// Get bank or mail or passwd file.
+			rootdir = result
+			while rootdir.path != "/"
+				rootdir = rootdir.parent
+			end while
+			
+			if params[2] == "bank" then
+				homedir = null
+				for folder in rootdir.get_folders
+					if folder.name == "home" then
+						homedir = folder
+					end if
+				end for
+				
+				// Get all bank files from file object.
+				for folder in homedir.get_folders
+					if folder.name == "Config" then
+						for file in folder.get_files
+							if file.name == "Bank.txt" then
+								if files.len == 0 then
+									files.push(file)
+								else
+									for test in files
+										found = false
+										if test.name == file.name then
+											found = true
+											break
+										end if
+										if not found then
+											files.push(file)
+											break
+										end if
+									end for
+								end if
+							end if
+						end for
+					end if
+				end for
+			else if params[2] == "mail" then
+				homedir = null
+				for folder in rootdir.get_folders
+					if folder.name == "home" then
+						homedir = folder
+					end if
+				end for
+				
+				// Get all mail files from file object.
+				for folder in homedir.get_folders
+					if folder.name == "Config" then
+						for file in folder.get_files
+							if file.name == "Mail.txt" then
+								if files.len == 0 then
+									files.push(file)
+								else
+									for test in files
+										found = false
+										if test.name == file.name then
+											found = true
+											break
+										end if
+										if not found then
+											files.push(file)
+											break
+										end if
+									end for
+								end if
+							end if
+						end for
+					end if
+				end for
+			else if params[2] == "passwd" then
+				homedir = null
+				for folder in rootdir.get_folders
+					if folder.name == "etc" then
+						homedir = folder
+					end if
+				end for
+				
+				// Get the passwd file if it has access.
+				for file in homedir.get_files
+					if file.name == "passwd" then
+						if files.len == 0 then
+							files.push(file)
+						else
+							for test in files
+								found = false
+								if test.name == file.name then
+									found = true
+									break
+								end if
+								if not found then
+									files.push(file)
+									break
+								end if
+							end for
+						end if
+					end if
+				end for
+			end if
 		else if typeof(result) == "computer" then
 			// Get bank or mail or passwd file.
 			if params[2] == "bank" then
@@ -40,7 +139,21 @@ for hack in hacks
 								print("Bank file was a folder.")
 								continue
 							end if
-							print(file.get_content)
+							if files.len == 0 then
+								files.push(file)
+							else
+								for test in files
+									found = false
+									if test.name == file.name then
+										found = true
+										break
+									end if
+									if not found then
+										files.push(file)
+										break
+									end if
+								end for
+							end if
 						end for
 					end for
 				end for
@@ -64,7 +177,21 @@ for hack in hacks
 								print("Mail file was a folder.")
 								continue
 							end if
-							print(file.get_content)
+							if files.len == 0 then
+								files.push(file)
+							else
+								for test in files
+									found = false
+									if test.name == file.name then
+										found = true
+										break
+									end if
+									if not found then
+										files.push(file)
+										break
+									end if
+								end for
+							end if
 						end for
 					end for
 				end for
@@ -83,11 +210,34 @@ for hack in hacks
 						print("Password file was a folder.")
 						continue
 					end if
-					print(file.get_content)
+					if files.len == 0 then
+						files.push(file)
+					else
+						for test in files
+							found = false
+							if test.name == file.name then
+								found = true
+								break
+							end if
+							if not found then
+								files.push(file)
+								break
+							end if
+						end for
+					end if
 				end if
 			end if
 		end if
 	end for
 end for
+
+if files.len != 0 then
+	print("Total files " + files.len + " found.")
+	for file in files
+		print(file.get_content)
+	end for
+else
+	print("No files found.")
+end if
 exit("Program ended.")
 
