@@ -40,17 +40,14 @@ for hack in hacks
 								if files.len == 0 then
 									files.push(file)
 								else
+									found = false
 									for test in files
-										found = false
 										if test.name == file.name then
 											found = true
 											break
 										end if
-										if not found then
-											files.push(file)
-											break
-										end if
 									end for
+									if not found then files.push(file)
 								end if
 							end if
 						end for
@@ -72,17 +69,14 @@ for hack in hacks
 								if files.len == 0 then
 									files.push(file)
 								else
+									found = false
 									for test in files
-										found = false
 										if test.name == file.name then
 											found = true
 											break
 										end if
-										if not found then
-											files.push(file)
-											break
-										end if
 									end for
+									if not found then files.push(file)
 								end if
 							end if
 						end for
@@ -140,11 +134,14 @@ for hack in hacks
 							if files.len == 0 then
 								files.push(file)
 							else
+								found = false
 								for test in files
-									if test.name != file.name then continue
-									files.push(file)
-									break
+									if test.name == file.name then
+										found = true
+										break
+									end if
 								end for
+								if not found then files.push(file)
 							end if
 						end for
 					end for
@@ -172,11 +169,14 @@ for hack in hacks
 							if files.len == 0 then
 								files.push(file)
 							else
+								found = false
 								for test in files
-									if test.name != file.name then continue
-									files.push(file)
-									break
+									if test.name == file.name then
+										found = true
+										break
+									end if
 								end for
+								if not found then files.push(file)
 							end if
 						end for
 					end for
