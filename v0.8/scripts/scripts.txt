@@ -599,68 +599,103 @@ for hack in hacks
 			end while
 			
 			if params[2] == "bank" then
-				homedir = null
+				home = null
 				for folder in rootdir.get_folders
 					if folder.name == "home" then
-						homedir = folder
+						home = folder
+						break
 					end if
 				end for
 				
 				// Get all bank files from file object.
-				for folder in homedir.get_folders
-					if folder.name == "Config" then
-						for file in folder.get_files
-							if file.name == "Bank.txt" then
-								if files.len == 0 then
-									files.push(file)
-								else
-									found = false
-									for test in files
-										if test.name == file.name then
-											found = true
-											break
-										end if
-									end for
-									if not found then files.push(file)
-								end if
+				for folder in home.get_folders
+					if folder.name == "guest" then continue
+					for userdir in folder.get_folders
+						if userdir.name != "Config" then continue
+						for file in userdir.get_files
+							if file.name != "Mail.txt" then continue
+							if not file.has_permission("r") then
+								print("Mail file permission denied.")
+								continue
+							end if
+							if file.is_binary then
+								print("Mail file was binary.")
+								continue
+							end if
+							if file.is_folder then
+								print("Mail file was a folder.")
+								continue
+							end if
+							map = {}
+							map["user"] = folder.name
+							map["file"] = file
+							if files.len == 0 then
+								files.push(map)
+							else
+								found = false
+								for obj in files
+									if obj["user"] == map["user"] then
+										found = true
+										break
+									end if
+								end for
+								if not found then files.push(map)
 							end if
 						end for
-					end if
+					end for
 				end for
 			else if params[2] == "mail" then
-				homedir = null
+				home = null
 				for folder in rootdir.get_folders
 					if folder.name == "home" then
-						homedir = folder
+						home = folder
+						break
 					end if
 				end for
 				
 				// Get all mail files from file object.
-				for folder in homedir.get_folders
-					if folder.name == "Config" then
-						for file in folder.get_files
-							if file.name == "Mail.txt" then
-								if files.len == 0 then
-									files.push(file)
-								else
-									found = false
-									for test in files
-										if test.name == file.name then
-											found = true
-											break
-										end if
-									end for
-									if not found then files.push(file)
-								end if
+				for folder in home.get_folders
+					if folder.name == "guest" then continue
+					for userdir in folder.get_folders
+						if userdir.name != "Config" then continue
+						for file in userdir.get_files
+							if file.name != "Mail.txt" then continue
+							if not file.has_permission("r") then
+								print("Mail file permission denied.")
+								continue
+							end if
+							if file.is_binary then
+								print("Mail file was binary.")
+								continue
+							end if
+							if file.is_folder then
+								print("Mail file was a folder.")
+								continue
+							end if
+							map = {}
+							map["user"] = folder.name
+							map["file"] = file
+							if files.len == 0 then
+								files.push(map)
+							else
+								found = false
+								for obj in files
+									if obj["user"] == map["user"] then
+										found = true
+										break
+									end if
+								end for
+								if not found then files.push(map)
 							end if
 						end for
-					end if
+					end for
 				end for
 			else if params[2] == "passwd" then
 				homedir = null
 				for folder in rootdir.get_folders
 					if folder.name == "etc" then
 						homedir = folder
+						break
 					end if
 				end for
 				
@@ -689,9 +724,9 @@ for hack in hacks
 				home = result.File("/home")
 				for folder in home.get_folders
 					if folder.name == "guest" then continue
-					for config in folder.get_folders
-						if config.name != "Config" then continue
-						for file in config.get_files
+					for userdir in folder.get_folders
+						if userdir.name != "Config" then continue
+						for file in userdir.get_files
 							if file.name != "Bank.txt" then continue
 							if not file.has_permission("r") then
 								print("Bank file permission denied.")
@@ -705,17 +740,20 @@ for hack in hacks
 								print("Bank file was a folder.")
 								continue
 							end if
+							map = {}
+							map["user"] = folder.name
+							map["file"] = file
 							if files.len == 0 then
-								files.push(file)
+								files.push(map)
 							else
 								found = false
-								for test in files
-									if test.name == file.name then
+								for obj in files
+									if obj["user"] == map["user"] then
 										found = true
 										break
 									end if
 								end for
-								if not found then files.push(file)
+								if not found then files.push(map)
 							end if
 						end for
 					end for
@@ -724,9 +762,9 @@ for hack in hacks
 				home = result.File("/home")
 				for folder in home.get_folders
 					if folder.name == "guest" then continue
-					for config in folder.get_folders
-						if config.name != "Config" then continue
-						for file in config.get_files
+					for userdir in folder.get_folders
+						if userdir.name != "Config" then continue
+						for file in userdir.get_files
 							if file.name != "Mail.txt" then continue
 							if not file.has_permission("r") then
 								print("Mail file permission denied.")
@@ -740,17 +778,20 @@ for hack in hacks
 								print("Mail file was a folder.")
 								continue
 							end if
+							map = {}
+							map["user"] = folder.name
+							map["file"] = file
 							if files.len == 0 then
-								files.push(file)
+								files.push(map)
 							else
 								found = false
-								for test in files
-									if test.name == file.name then
+								for obj in files
+									if obj["user"] == map["user"] then
 										found = true
 										break
 									end if
 								end for
-								if not found then files.push(file)
+								if not found then files.push(map)
 							end if
 						end for
 					end for
@@ -780,7 +821,7 @@ end for
 if files.len != 0 then
 	print("Total files " + files.len + " found.")
 	for file in files
-		print(file.get_content)
+		print(file["file"].get_content)
 	end for
 else
 	print("No files found.")
