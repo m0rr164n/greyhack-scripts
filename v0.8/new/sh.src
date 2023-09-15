@@ -1,0 +1,2187 @@
+//////////////////////////////////////////////////////////
+// Name: Simple Shell Reimagined (v3)
+// Desc: A full fletched Grey Hack shell for hacking
+//       in-game.
+// Auth: Philip R. Simonson (aka 5n4k3)
+// Date: 08/01/2023
+//////////////////////////////////////////////////////////
+
+// Global variables for shell.
+globals.name = "sh"
+globals.date = "08/01/2023"
+globals.coder = "5n4k3"
+globals.version = 1.3
+globals.running = true
+globals.objects = []
+
+// Global variables for database.
+globals.db = {}
+globals.db.name = "payload"
+globals.db.folder = null
+globals.db.names = ["exploits"]
+
+// Local variables
+vfile = []
+
+// Local variables for active user and active object.
+local = {}
+local.user = active_user
+local.object = get_shell
+local.computer = get_shell.host_computer
+local.folder = get_shell.host_computer.File(current_path)
+local.router = get_router
+local.publicip = get_router.public_ip
+local.localip = local.computer.local_ip
+
+// Remote variables for active user and active object.
+remote = {}
+remote.user = active_user
+remote.object = get_shell
+remote.computer = get_shell.host_computer
+remote.folder = get_shell.host_computer.File(current_path)
+remote.router = get_router
+remote.publicip = get_router.public_ip
+remote.localip = remote.computer.local_ip
+
+// Set the terminal to yours.
+interface = get_custom_object
+if interface.indexes.len != 2 then
+    local = interface.local
+    vfile = interface.vfile
+end if
+
+current = {}
+current.user = remote.user
+current.object = remote.object
+current.computer = function
+    if typeof(current.object) == "shell" then return current.object.host_computer
+    if typeof(current.object) == "computer" then return current.object
+    return null
+end function
+current.folder = current.computer.File(current_path)
+current.router = remote.router
+current.publicip = function
+    return current.router.public_ip
+end function
+current.localip = current.computer.local_ip
+
+// Load metaxploit.so into memory.
+globals.metaxploit = include_lib("/lib/metaxploit.so")
+if not globals.metaxploit then globals.metaxploit = include_lib(parent_path(program_path) + "/metaxploit.so")
+if not globals.metaxploit then exit(globals.name + ": Cannot find metaxploit.so!")
+
+// Global library helper functions.
+globals.libs = {}
+
+globals.libs.toFile = function(anyObject = null)
+    if typeof(anyObject) == "shell" then return anyObject.host_computer.File("/")
+    if typeof(anyObject) == "computer" then return anyObject.File("/")
+    if typeof(anyObject) == "file" then
+        while anyObject.path != "/"
+            anyObject = anyObject.parent
+        end while
+        return anyObject
+    end if
+    return null
+end function
+
+globals.libs.navTo = function(anyObject, path = "/")
+    if typeof(anyObject) != "file" and typeof(anyObject) != "computer" and typeof(anyObject) != "shell" then
+        return null
+    end if
+    if typeof(path) != "string" then return null
+    if path.len == 0 then return null
+    
+    object = globals.libs.toFile(anyObject)
+    if not object then return null
+
+    // Trim trailing '/' character(s) from path.
+    while (path.len > 1) and (path[-1] == "/")
+        path = path[:-1]
+    end while
+
+    // Trim starting '/' character(s) from path.
+    while (path.len > 1) and (path[0] == "/")
+        path = path[1:]
+    end while
+
+    if path == "/" then return object
+    path = path.split("/")
+    for i in path.indexes
+        found = false
+        if i == (path.len - 1) then
+            for file in object.get_folders + object.get_files
+                if file.name != path[i] then continue
+                return file
+            end for
+            return null
+        end if
+
+        for file in object.get_folders
+            if file.name != path[i] then continue
+            found = true
+            object = file
+            break
+        end for
+        if not found then return null
+    end for
+
+    return object
+end function
+
+globals.libs.findAll = function(fileObject)
+    if typeof(fileObject) != "file" then return null
+    
+    newList = []
+    fileList = fileObject.get_folders + fileObject.get_files
+    while fileList.len > 0
+        file = fileList.pull
+        if file.is_folder then fileList = fileList + file.get_folders + file.get_files
+        newList.push(file)
+    end while
+    return newList
+end function
+
+globals.libs.findAllWithRead = function(fileList)
+    if typeof(fileList) != "list" then return null
+
+    newList = []
+    for file in fileList
+        // Check for permissions
+        if file.has_permission("r") then
+            if file.is_folder then
+                newList.push({ "type": "folder", "file": file })
+            else if file.is_binary then
+                newList.push({ "type": "binary", "file": file })
+            else
+                newList.push({ "type": "text", "file": file })
+            end if
+        end if
+    end for
+    return newList
+end function
+
+globals.libs.findAllWithWrite = function(fileList)
+    if typeof(fileList) != "list" then return null
+
+    newList = []
+    for file in fileList
+        // Check for permissions
+        if file.has_permission("w") then
+            if file.is_folder then
+                newList.push({ "type": "folder", "file": file })
+            else if file.is_binary then
+                newList.push({ "type": "binary", "file": file })
+            else
+                newList.push({ "type": "text", "file": file })
+            end if
+        end if
+    end for
+    return newList
+end function
+
+globals.libs.findAllWithExec = function(fileList)
+    if typeof(fileList) != "list" then return null
+
+    newList = []
+    for file in fileList
+        // Check for permissions
+        if file.has_permission("x") then
+            if file.is_folder then
+                newList.push({ "type": "folder", "file": file })
+            else if file.is_binary then
+                newList.push({ "type": "binary", "file": file })
+            else
+                newList.push({ "type": "text", "file": file })
+            end if
+        end if
+    end for
+    return newList
+end function
+
+globals.libs.checkIP = function(anyObject, targetIP, targetPort, currentRouter)
+    if typeof(anyObject) != "shell" and typeof(anyObject) != "computer" and typeof(anyObject) != "file" then return null
+    if not is_valid_ip(targetIP) then return null
+    if typeof(targetPort) != "number" then return null
+    if typeof(currentRouter) != "router" then return null
+    if typeof(anyObject) == "shell" then return { "localip": anyObject.host_computer.local_ip, "publicip": anyObject.host_computer.public_ip, "router": get_router(anyObject.host_computer.public_ip) }
+    if typeof(anyObject) == "computer" then return { "localip": anyObject.local_ip, "publicip": anyObject.public_ip, "router": get_router(anyObject.public_ip) }
+    if is_lan_ip(targetIP) then return { "localip": targetIP, "publicip": currentRouter.public_ip, "router": currentRouter }
+    targetRouter = get_router(targetIP)
+    if not targetRouter then return null
+    targetPortObject = targetRouter.ping_port(targetPort)
+    if targetPortObject then return { "localip": targetPortObject.get_lan_ip, "publicip": targetIP, "router": targetRouter }
+    return { "localip": targetRouter.local_ip, "publicip": targetIP, "router": targetRouter }
+end function
+
+globals.libs.checkUser = function(anyObject)
+    file = globals.libs.navTo(anyObject, "/root")
+    if file != null then
+        if file.has_permission("r") and file.has_permission("w") and file.has_permission("x") then
+            return "root"
+        end if
+    end if
+    homeFolder = globals.libs.navTo(anyObject, "/home")
+    if homeFolder != null then
+        for user in homeFolder.get_folders
+            if user.has_permission("r") and user.has_permission("w") and user.has_permission("x") then
+                return user.name
+            end if
+        end for
+    end if
+    return "guest"
+end function
+
+globals.libs.encrypt = function(string = "")
+    if typeof(string) != "string" then return null
+    // TODO: Add your own encryption.
+    return string
+end function
+
+globals.libs.decrypt = function(string = "")
+    if typeof(string) != "string" then return null
+    // TODO: Add your own decryption.
+    return string
+end function
+
+globals.libs.dbCheck = function
+    payload = local.computer.File(local.folder.path + "/" + globals.db.name)
+    if not payload then return false
+    globals.db.folder = payload
+
+    for name in globals.db.names
+        folder = local.computer.File(local.folder.path + "/" + globals.db.name + "/" + name)
+        if not folder then return false
+        globals.db[name] = folder
+    end for
+
+    return true
+end function
+
+globals.libs.dbCreate = function
+    payload = local.computer.File(local.folder.path + "/" + globals.db.name)
+    if not payload then
+        print("<color=yellow>Creating database folder '" + globals.db.name + "'...</color>")
+        local.computer.touch(local.folder.path, globals.db.name)
+        payload = local.computer.File(local.folder.path + "/" + globals.db.name)
+        if not payload then
+            print("<color=red>Folder '" + globals.db.name + "' already created.</color>")
+            return false
+        else
+            print("<color=yellow>Folder '" + globals.db.name + "' created.</color>")
+        end if
+    end if
+    globals.db.folder = payload
+
+    for dbname in globals.db.names
+        file = local.computer.File(local.folder.path + "/" + globals.db.name + "/" + dbname)
+        if not file then
+            print("<color=yellow>Creating database folder '" + dbname + "'...</color>")
+            local.computer.touch(local.folder.path + "/" + globals.db.name, dbname)
+            file = local.computer.File(local.folder.path + "/" + globals.db.name + "/" + dbname)
+            if not file then
+                print("<color=red>Folder '" + dbname + "' not created.</color>")
+                globals.db[dbname] = null
+                return false
+            else
+                print("<color=yellow>Folder '" + dbname + "' created.</color>")
+                globals.db[dbname] = file
+            end if
+        end if
+    end for
+    
+    return true
+end function
+
+globals.libs.dbDelete = function(dbName = "")
+    if dbName == "" then
+        if globals.db.folder == null then return false
+        globals.db.folder.delete
+        globals.db.folder = null
+        for dbname in globals.db.names
+            globals.db[dbname] = null
+        end for
+    else
+        if globals.db.hasIndex(dbName) == null then return false
+        if typeof(globals.db[dbName]) != "file" then return false
+        if globals.db[dbName] == null then return false
+        globals.db[dbName].delete
+        globals.db[dbName] = null
+    end if
+    return true
+end function
+
+globals.libs.dbParse = function(result = "", filename = "")
+    if typeof(result) != "string" then return null
+    if typeof(filename) != "string" then return null
+    if result.indexOf(";") == null then return null
+    if result.indexOf(":") == null then return null
+
+    exploits = result.split(";")[:-1]
+    ret = {}
+    ret.name = filename
+    ret.memorys = {}
+
+    for exploit in exploits
+        v = exploit.split(":")
+        ret.version = v[0]
+        ret.memorys[v[1]] = []
+    end for
+
+    for exploit in exploits
+        v = exploit.split(":")
+        ret.memorys[v[1]].push(v[2])
+    end for
+
+    return ret
+end function
+
+globals.libs.dbParseToLines = function(result = "")
+    if typeof(result) != "string" or result == "" then return null
+    lines = result.split(";")[:-1]
+    converted = []
+    for line in lines
+        converted.push(line)
+    end for
+    return converted
+end function
+
+globals.libs.dbStringify = function(result = {})
+    if typeof(result) != "map" then return ""
+    s = ""
+    for memory in result.memorys
+        for value in memory.value
+            s = s + result.version + ":" + memory.key + ":" + value + ";"
+        end for
+    end for
+    return s
+end function
+
+globals.libs.dbStringifyLines = function(result = [])
+    if typeof(result) != "list" then return ""
+    s = ""
+    for line in result
+        s = s + line + ";"
+    end for
+    return s
+end function
+
+globals.libs.dbWrite = function(result = null)
+    if typeof(result) != "map" then return null
+
+    name = result.name.replace("_", "0")
+    file = local.computer.File(globals.db.exploits.path + "/" + name)
+    if not file then
+        local.computer.touch(globals.db.exploits.path, name)
+        file = local.computer.File(globals.db.exploits.path + "/" + name)
+        if not file then false
+    end if
+
+    // Get content and check if in database.
+    content = globals.libs.decrypt(file.get_content)
+    lines = globals.libs.dbParseToLines(content)
+    for line in lines
+        v = line.split(":")
+        if v[0] == result.version then
+            return false
+        end if
+    end for
+
+    // Write content to database.
+    content = content + globals.libs.dbStringify(result)
+    content = globals.libs.encrypt(content)
+    result = file.set_content(content)
+    if typeof(result) == "string" then return false
+
+    return true
+end function
+
+globals.libs.dbQuery = function(libname = "", libver = "")
+    if libname == "" then
+        for file in globals.db.exploits.get_files
+            print(file.name.replace("0", "_"))
+        end for
+    else
+        name = libname.replace("_", "0")
+        file = local.computer.File(globals.db.exploits.path + "/" + name)
+        if not file then return null
+        data = globals.libs.decrypt(file.get_content)
+
+        if libver == "" then
+            lines = globals.libs.dbParseToLines(data)
+            print(file.name.replace("0", "_"))
+            for line in lines
+                v = line.split(":")
+                print("  " + v[0] + " --> " + v[1] + " [" + v[2] + "]")
+            end for
+        else
+            converted = []
+            lines = globals.libs.dbParseToLines(data)
+            for line in lines
+                v = line.split(":")
+                if v[0] == libver then
+                    converted.push(line)
+                end if
+            end for
+            data = globals.libs.dbStringifyLines(converted)
+            return globals.libs.dbParse(data, name)
+        end if
+    end if
+    return null
+end function
+
+globals.libs.scanLib = function(metalib, metax)
+    if not metalib then return null
+    if not metax then return null
+
+    ret = globals.libs.dbQuery(metalib.lib_name, metalib.version)
+    if ret != null then return ret
+
+    ret = {}
+    ret.name = metalib.lib_name
+    ret.version = metalib.version
+    ret.memorys = {}
+    memorys = metax.scan(metalib)
+    for memory in memorys
+        data = metax.scan_address(metalib, memory).split("Unsafe check: ")
+        if not data then continue
+        ret.memorys[memory] = []
+        for line in data
+            if line == data[0] then continue
+            if line == "" then continue
+            value = line[line.indexOf("<b>")+3:line.indexOf("</b>")].replace(char(10), "")
+            ret.memorys[memory].push(value)
+        end for
+    end for
+
+    if globals.libs.dbWrite(ret) then
+        print("<color=yellow>Library '" + ret.name + "' version " + ret.version + " added.")
+    else
+        print("<color=orange>Library '" + ret.name + "' version " + ret.version + " already exists.")
+    end if
+
+    return ret
+end function
+
+globals.libs.getPorts = function(ip)
+    ret = {}
+    ret.targetIP = null
+    ret.router = null
+    ret.ports = null
+
+    targetIP = ip
+    if not is_valid_ip(targetIP) then targetIP = nslookup(targetIP)
+    if not is_valid_ip(targetIP) then return null
+
+    if is_lan_ip(targetIP) then
+        ret.router = get_router
+    else
+        ret.router = get_router(targetIP)
+    end if
+    if not ret.router then return null
+
+    if not is_lan_ip(targetIP) then
+        ret.ports = ret.router.used_ports
+    else
+        ret.ports = ret.router.device_ports(targetIP)
+    end if
+    if typeof(ret.ports) == "string" then return null
+
+    ret.targetIP = targetIP
+    return ret
+end function
+
+globals.libs.getRandomIP = function()
+    parts = []
+    maxTries = 100
+    while maxTries > 0
+        parts.push(ceil(rnd * 223))
+        parts.push(floor(rnd * 223))
+        parts.push(floor(rnd * 223))
+        parts.push(floor(rnd * 223))
+        ip = parts.join(".")
+        if not is_lan_ip(ip) and is_valid_ip(ip) then return ip
+        maxTries = maxTries - 1
+    end while
+    return null
+end function
+
+globals.libs.scanPort = function(targetIP, targetPort)
+    if not is_valid_ip(targetIP) then return null
+    if typeof(targetPort) != "number" then return null
+
+    netsession = globals.metaxploit.net_use(targetIP, targetPort)
+    if not netsession then
+        print(globals.name + ": Cannot get netsession.")
+        return null
+    end if
+
+    metalib = netsession.dump_lib
+    if not metalib then
+        print(globals.name + ": Cannot dump lib.")
+        return null
+    end if
+
+    return globals.libs.scanLib(metalib, globals.metaxploit)
+end function
+
+// ------------------- Shell Commands --------------------
+
+globals.commandsShell = {}
+
+globals.commandsShell["scp"] = { "name": "scp", "desc": "Upload or download from remote system.", "args": "[path | [-d path] | [-u path]]" }
+globals.commandsShell["scp"]["run"] = function(argv = [])
+    if typeof(argv) != "list" then return print(globals.name + ": Invalid argument vector given.")
+    if argv.len != 2 and argv.len != 3 then return print(globals.name + ": Does NOT take any arguments.")
+
+    if argv.len == 2 then
+        if argv[1].indexOf("/") == 0 then
+            result = local.object.scp(argv[1], current.folder.path, current.object)
+            if typeof(result) == "string" then return print(globals.name + ": " + result)
+        else
+            result = local.object.scp(local.folder.path + "/" + argv[1], current.folder.path, current.object)
+            if typeof(result) == "string" then return print(globals.name + ": " + result)
+        end if
+    else
+        if argv[1] == "-d" then
+            if argv[2].indexOf("/") == 0 then
+                result = current.object.scp(argv[2], local.folder.path, local.object)
+                if typeof(result) == "string" then return print(globals.name + ": " + result)
+            else
+                result = current.object.scp(current.folder.path + "/" + argv[2], local.folder.path, local.object)
+                if typeof(result) == "string" then return print(globals.name + ": " + result)
+            end if
+        else if argv[1] == "-u" then
+            if argv[2].indexOf("/") == 0 then
+                result = local.object.scp(argv[2], current.folder.path, current.object)
+                if typeof(result) == "string" then return print(globals.name + ": " + result)
+            else
+                result = local.object.scp(local.folder.path + "/" + argv[2], current.folder.path, current.object)
+                if typeof(result) == "string" then return print(globals.name + ": " + result)
+            end if
+        end if
+    end if
+    return true
+end function
+
+globals.commandsShell["shell"] = { "name": "shell", "desc": "Execute a shell on remote system.", "args": "" }
+globals.commandsShell["shell"]["run"] = function(argv = [])
+    if typeof(argv) != "list" then return print(globals.name + ": Invalid argument vector given.")
+    if argv.len != 1 then return print(globals.name + ": Does NOT take any arguments.")
+
+    if typeof(current.object) == "shell" then
+        current.object.start_terminal
+    else
+        print(globals.name + ": You are NOT in a shell.")
+    end if
+    return true
+end function
+
+globals.commandsShell["elevate"] = { "name": "elevate", "desc": "Priviledge elevation using username and password.", "args": "[user] [pass]" }
+globals.commandsShell["elevate"]["run"] = function(argv = [])
+    if typeof(argv) != "list" then return print(globals.name + ": Invalid argument vector given.")
+    if argv.len != 3 then return print(globals.name + ": Takes two arguments.")
+
+    payload = "if params.len != 2 then exit(""elevate: <user> <pass>"")" + char(10)
+    payload = payload + "shell = get_shell(params[0], params[1])" + char(10)
+    payload = payload + "if not shell then exit(""elevate: Elevation failed."")" + char(10)
+    payload = payload + "interface = get_custom_object" + char(10)
+    payload = payload + "interface.shell = shell" + char(10)
+    current.object.host_computer.touch(current.folder.path, "a.src")
+    srcfile = globals.libs.navTo(current.object, current.folder.path + "/a.src")
+    if not srcfile then return print(globals.name + ": Could not create source for elevating.")
+    srcfile.set_content(payload)
+    current.object.build(current.folder.path + "/a.src", current.folder.path, 0)
+    binfile = globals.libs.navTo(current.object, current.folder.path + "/a")
+    if not binfile then
+        srcfile.delete
+        return false
+    end if
+    interface = get_custom_object
+    interface.shell = null
+    current.object.launch(current.folder.path + "/a", argv[1] + " " + argv[2])
+    if interface.shell != null then
+        if globals.objects.indexOf(interface.shell) == null then
+            localIP = current.localip
+            if typeof(interface.shell) == "shell" then localIP = interface.shell.host_computer.local_ip
+            if typeof(interface.shell) == "computer" then localIP = interface.shell.local_ip
+            shell = {"object": interface.shell, "user": globals.libs.checkUser(interface.shell), "addr": "", "vuln": "", "localip": localIP, "publicip": current.publicip, "router": current.router }
+            current.user = shell.user
+            current.object = shell.object
+            current.computer = function
+                if typeof(shell.object) == "shell" then return shell.object.host_computer
+                if typeof(shell.object) == "computer" then return shell.object
+                return null
+            end function
+            current.folder = function
+                if shell.user == "root" then
+                    return globals.libs.navTo(shell.object, "/root")
+                else
+                    file = globals.libs.navTo(shell.object, "/home/" + shell.user)
+                    if file != null then
+                        return globals.libs.navTo(shell.object, file.path)
+                    end if
+                end if
+                return globals.libs.toFile(shell.object)
+            end function
+            current.router = shell.router
+            current.publicip = shell.publicip
+            current.localip = shell.localip
+            globals.objects.push(shell)
+            print("<color=white>If you need this object back.</color>\n<color=white>You can select it with the <b>objects</b> command.</color>")
+        end if
+    end if
+    srcfile.delete
+    binfile.delete
+    return true
+end function
+
+globals.commandsShell["upload"] = { "name": "upload", "desc": "Upload this tool with requirements.", "args": "" }
+globals.commandsShell["upload"]["run"] = function(argv = [])
+    if typeof(argv) != "list" then return print(globals.name + ": Invalid argument vector given.")
+    if argv.len != 1 then return print(globals.name + ": Has no arguments.")
+
+    folders = ["/lib", "/bin", "/usr/bin", parent_path(program_path), local.folder.path]
+    files = ["payload", "metaxploit.so", "sh"]
+    for file in files
+        for folder in folders
+            fileobj = globals.libs.navTo(local.object, folder + "/" + file)
+            if not fileobj then continue
+            result = local.object.scp(fileobj.path, current.folder.path, current.object)
+            if typeof(result) == "string" then print(globals.name + ": Could not upload file " + fileobj.name)
+            break
+        end for
+    end for
+    interface = get_custom_object
+    interface.local = {}
+    interface.local.user = local.user
+    interface.local.object = local.object
+    interface.local.computer = function
+        if typeof(interface.local.object) == "shell" then return interface.local.object.host_computer
+        if typeof(interface.local.object) == "computer" then return interface.local.object
+        return null
+    end function
+    interface.local.folder = local.folder
+    interface.local.router = local.router
+    interface.local.publicip = function
+        return interface.local.router.public_ip
+    end function
+    interface.local.localip = local.computer.local_ip
+    interface.vfile = vfile
+    result = current.object.launch(current.folder.path + "/sh", "")
+    if typeof(result) == "string" then return print(globals.name + ": Could not launch shell.")
+    return true
+end function
+
+globals.commandsShell["run"] = { "name": "run", "desc": "Run a program on the current system.", "args": "[path/to/binary] [args]" }
+globals.commandsShell["run"]["run"] = function(argv = [])
+    if typeof(argv) != "list" then return print(globals.name + ": Invalid argument vector given.")
+    if argv.len < 2 then return print(globals.name + ": Takes one or more arguments.")
+    result = ""
+    cmd = argv[1:2].join("")
+    if cmd.indexOf("/") == 0 then
+        result = current.object.launch(cmd, argv[2:].join(" "))
+    else
+        folders = ["/bin", current.folder.path]
+        for folder in folders
+            computer = current.object.host_computer
+            file = computer.File(folder + "/" + cmd)
+            if not file then continue
+            if not file.has_permission("r") and not file.has_permission("x") then continue
+            result = current.object.launch(file.path, argv[2:].join(" "))
+            break
+        end for
+    end if
+    if typeof(result) == "string" then return print(globals.name + ": " + result)
+    return true
+end function
+
+// ----------------- Computer Commands -------------------
+
+globals.commandsComputer = {}
+
+globals.commandsComputer["ps"] = { "name": "ps", "desc": "Display process information.", "args": "" }
+globals.commandsComputer["ps"]["run"] = function(argv = [])
+    if typeof(argv) != "list" then return print(globals.name + ": Invalid argument vector given.")
+    if argv.len != 1 then return print(globals.name + ": Takes no arguments.")
+
+    info = "USER PID COMMAND"
+    procs = current.computer.show_procs
+    for proc in procs.split(char(10))[1:]
+        usr = proc.split(" ")[0]
+        pid = proc.split(" ")[1]
+        cmd = proc.split(" ")[4]
+        info = info + char(10) + usr + " " + pid + " " + cmd
+    end for
+    print(format_columns(info))
+    return true
+end function
+
+globals.commandsComputer["kill"] = { "name": "kill", "desc": "Kill a running process.", "args": "[pid]" }
+globals.commandsComputer["kill"]["run"] = function(argv = [])
+    if typeof(argv) != "list" then return print(globals.name + ": Invalid argument vector given.")
+    if argv.len != 2 then return print(globals.name + ": Takes one argument.")
+
+    pid = argv[1].to_int
+    if typeof(pid) != "number" then
+        print(globals.name + ": Not a number.")
+        return false
+    end if
+    result = current.computer.close_program(pid)
+    if typeof(result) == "string" then
+        print(globals.name + ": Cannot close program.")
+        return false
+    end if
+    print(globals.name + ": Program closed.")
+    return true
+end function
+
+globals.commandsComputer["useradd"] = { "name": "useradd", "desc": "Add a user account to system.", "args": "[user] [pass]" }
+globals.commandsComputer["useradd"]["run"] = function(argv = [])
+    if typeof(argv) != "list" then return print(globals.name + ": Invalid argument vector given.")
+    if argv.len != 3 then return print(globals.name + ": Takes two arguments.")
+    if current.user != "root" then return print(globals.name + ": Must have root access.")
+
+    computer = null
+    if typeof(current.object) == "shell" then
+        computer = current.object.host_computer
+    else if typeof(current.object) == "computer" then
+        computer = current.object
+    end if
+    if not computer then return print(globals.name + ": Not a shell or computer.")
+    result = computer.create_user(argv[1], argv[2])
+    if typeof(result) == "string" then
+        print(globals.name + ": Cannot create user with pass.")
+    else
+        print(globals.name + ": Created user successfully.")
+    end if
+    return true
+end function
+
+globals.commandsComputer["userdel"] = { "name": "userdel", "desc": "Delete a user account from system.", "args": "[user]" }
+globals.commandsComputer["userdel"]["run"] = function(argv = [])
+    if typeof(argv) != "list" then return print(globals.name + ": Invalid argument vector given.")
+    if argv.len != 2 then return print(globals.name + ": Takes one argument.")
+    if current.user != "root" then return print(globals.name + ": Must have root access.")
+
+    computer = null
+    if typeof(current.object) == "shell" then
+        computer = current.object.host_computer
+    else if typeof(current.object) == "computer" then
+        computer = current.object
+    end if
+    if not computer then return print(globals.name + ": Not a shell or computer.")
+    result = computer.delete_user(argv[1], true)
+    if typeof(result) == "string" then
+        print(globals.name + ": Cannot delete user account.")
+    else
+        print(globals.name + ": Deleted user successfully.")
+    end if
+    return true
+end function
+
+globals.commandsComputer["chpwd"] = { "name": "chpwd", "desc": "Change a user's password.", "args": "[user] [pass]" }
+globals.commandsComputer["chpwd"]["run"] = function(argv = [])
+    if typeof(argv) != "list" then return print(globals.name + ": Invalid argument vector given.")
+    if argv.len != 3 then return print(globals.name + ": Takes two arguments.")
+    if current.user != "root" then return print(globals.name + ": Must have root access.")
+
+    computer = null
+    if typeof(current.object) == "shell" then
+        computer = current.object.host_computer
+    else if typeof(current.object) == "computer" then
+        computer = current.object
+    end if
+    if not computer then return print(globals.name + ": Not a shell or computer.")
+    result = computer.change_password(argv[1], argv[2])
+    if result then
+        print(globals.name + ": Password not changed.")
+        return false
+    else
+        print(globals.name + ": Password changed.")
+    end if
+    return true
+end function
+
+// ------------------ General Commands -------------------
+
+globals.commands = {}
+
+globals.commands["help"] = { "name": "help", "desc": "Display a list of commands.", "args": "" }
+globals.commands["help"]["run"] = function(argv = [])
+    if typeof(argv) != "list" then return print(globals.name + ": Invalid argument vector given.")
+    if argv.len != 1 then return print(globals.name + ": Does NOT take any arguments.")
+
+    info = typeof(current.object) + " commands:" + "\n"
+    for command in globals.commands
+        info = info + char(9) + command.value.name + " " + command.value.desc + "\n"
+    end for
+
+    if typeof(current.object) == "shell" or typeof(current.object) == "computer" then
+        for command in globals.commandsComputer
+            info = info + char(9) + command.value.name + " " + command.value.desc + "\n"
+        end for
+        if typeof(current.object) == "shell" then
+            for command in globals.commandsShell
+                info = info + char(9) + command.value.name + " " + command.value.desc + "\n"
+            end for
+        end if
+    end if
+
+    print(info)
+    return true
+end function
+
+globals.commands["ls"] = { "name": "ls", "desc": "List the current directory or given directory.", "args": "[(opt) path]" }
+globals.commands["ls"]["run"] = function(argv = [])
+    if typeof(argv) != "list" then return print(globals.name + ": Invalid argument vector given.")
+
+    if argv.len == 1 then
+        info = "PERM OWNER GROUP NAME"
+        folder = current.folder
+        if not folder then
+            print(globals.name + ": Not found.")
+            return false
+        end if
+        for file in folder.get_folders + folder.get_files
+            info = info + char(10) + file.permissions + " " + file.owner + " " + file.group + " " + file.name
+        end for
+        return print(format_columns(info))
+    else if argv.len == 2 then
+        info = "PERM OWNER GROUP NAME"
+        folder = null
+        if argv[1].indexOf("/") == 0 then
+            folder = globals.libs.navTo(current.object, argv[1])
+        else
+            folder = globals.libs.navTo(current.object, current.folder.path + "/" + argv[1])
+        end if
+        if not folder then
+            print(globals.name + ": Not found.")
+            return false
+        end if
+        for file in folder.get_folders + folder.get_files
+            info = info + char(10) + file.permissions + " " + file.owner + " " + file.group + " " + file.name
+        end for
+        print(format_columns(info))
+    else
+        print(globals.name + ": Invalid number of arguments.")
+        return false
+    end if
+    return true
+end function
+
+globals.commands["cd"] = { "name": "cd", "desc": "Change to a different directory.", "args": "[(opt) path]" }
+globals.commands["cd"]["run"] = function(argv = [])
+    if typeof(argv) != "list" then return print(globals.name + ": Invalid argument vector given.")
+
+    if argv.len == 1 then
+        file = null
+        if current.user == "root" then
+            file = globals.libs.navTo(current.object, "/root")
+        else
+            file = globals.libs.navTo(current.object, "/home/" + current.user)
+        end if
+        if not file then
+            print(globals.name + ": Not found.")
+            return false
+        end if
+        current.folder = file
+        return print(globals.name + ": Changed directory.")
+    else if argv.len == 2 then
+        if argv[1] == ".." then
+            if current.folder.path != "/" then
+                current.folder = current.folder.parent
+                print(globals.name + ": Changed directory.")
+            else
+                print(globals.name + ": Already at root directory.")
+            end if
+        else
+            file = null
+            if argv[1].indexOf("/") == 0 then
+                file = globals.libs.navTo(current.object, argv[1])
+            else
+                file = globals.libs.navTo(current.object, current.folder.path + "/" + argv[1])
+            end if
+            if not file then
+                print(globals.name + ": Not found.")
+                return false
+            end if
+            current.folder = file
+            print(globals.name + ": Changed directory.")
+        end if
+    else
+        return print(globals.name + ": Invalid number of arguments.")
+    end if
+    return true
+end function
+
+globals.commands["pwd"] = { "name": "pwd", "desc": "Print working directory.", "args": "" }
+globals.commands["pwd"]["run"] = function(argv = [])
+    if typeof(argv) != "list" then return print(globals.name + ": Invalid argument vector given.")
+
+    if argv.len == 1 then
+        print(current.folder.path)
+        return true
+    end if
+    print(globals.name + ": Invalid number of arguments.")
+    return false
+end function
+
+globals.commands["rm"] = { "name": "rm", "desc": "Remove the given file or directory.", "args": "[path]" }
+globals.commands["rm"]["run"] = function(argv = [])
+    if typeof(argv) != "list" then return print(globals.name + ": Invalid argument vector given.")
+
+    if argv.len == 2 then
+        file = null
+        if argv[1].indexOf("/") != 0 then
+            file = globals.libs.navTo(current.object, current.folder.path + "/" + argv[1])
+        else
+            file = globals.libs.navTo(current.object, argv[1])
+        end if
+        if not file then
+            print(globals.name + ": Not found.")
+            return false
+        end if
+        if file.is_folder then
+            print(globals.name + ": Cannot remove a directory.")
+            return false
+        end if
+        if file.has_permission("w") then
+            if file.delete then
+                print(globals.name + ": File not deleted!")
+                return false
+            end if
+            print(globals.name + ": File deleted!")
+        else
+            print(globals.name + ": Permission denied!")
+        end if
+    else
+        print(globals.name + ": Invalid number of arguments.")
+    end if
+    return true
+end function
+
+globals.commands["cat"] = { "name": "cat", "desc": "Print the content of given file.", "args": "[path]" }
+globals.commands["cat"]["run"] = function(argv = [])
+    if typeof(argv) != "list" then return print(globals.name + ": Invalid argument vector given.")
+    if argv.len != 2 then return print(globals.name + ": Invalid arguments given.")
+
+    file = null
+    if argv[1].indexOf("/") != 0 then
+        file = globals.libs.navTo(current.object, current.folder.path + "/" + argv[1])
+    else
+        file = globals.libs.navTo(current.object, argv[1])
+    end if
+    if not file then
+        print(globals.name + ": Not found.")
+        return false
+    end if
+    if not file.is_folder and file.has_permission("r") then
+        print(file.get_content)
+    else
+        print(globals.name + ": Permission denied!")
+    end if
+    return true
+end function
+
+globals.commands["touch"] = { "name": "touch", "desc": "Create a blank file.", "args": "[path]" }
+globals.commands["touch"]["run"] = function(argv = [])
+    if typeof(argv) != "list" then return print(globals.name + ": Invalid argument vector given.")
+    if argv.len != 2 then return print(globals.name + ": Takes one argument.")
+
+    file = null
+    if typeof(current.object) == "shell" or typeof(current.object) == "computer" then
+        object = current.object
+        if typeof(current.object) == "shell" then object = current.object.host_computer
+        path = ""
+        filename = ""
+        if argv[1].indexOf("/") == 0 then
+            path = parent_path(argv[1])
+            filename = argv[1].split("/")[-1]
+        else
+            if argv[1].indexOf("/") > 0 then
+                path = current.folder.path + "/" + parent_path(argv[1])
+                filename = argv[1].split("/")[-1]
+            else
+                path = current.folder.path
+                filename = argv[1]
+            end if
+        end if
+        object.touch(path, filename)
+        file = globals.libs.navTo(current.object, path + "/" + filename)
+    else
+        allFiles = globals.libs.findAll(globals.libs.toFile(current.object))
+        if not allFiles then return print(globals.name + ": Not a file object.")
+        if allFiles.len == 0 then return print(globals.name + ": No files in root folder.")
+
+        files = globals.libs.findAllWithWrite(allFiles)
+        if not files then return print(globals.name + ": Not a list of maps.")
+        if files.len == 0 then return print(globals.name + ": Cannot find any files.")
+
+        for f in files
+            if f.type == "text" then
+                file = f.file
+                break
+            end if
+        end for
+        if not file then return print(globals.name + ": File not found.")
+
+        path = ""
+        filename = ""
+        if argv[1].indexOf("/") == 0 then
+            path = parent_path(argv[1])
+            filename = argv[1].split("/")[-1]
+        else
+            if argv[1].indexOf("/") > 0 then
+                path = current.folder.path + "/" + parent_path(argv[1])
+                filename = argv[1].split("/")[-1]
+            else
+                path = current.folder.path
+                filename = argv[1]
+            end if
+        end if
+        result = file.copy(path, filename)
+        file = globals.libs.navTo(current.object, path + "/" + filename)
+    end if
+    if not file then
+        print(globals.name + ": File not created.")
+        return false
+    end if
+    file.set_content("")
+    file.set_owner(current.user)
+    file.set_group(current.user)
+    file.chmod("u+rwx", false)
+    file.chmod("g+rwx", false)
+    file.chmod("o+rwx", false)
+    print(globals.name + ": File was created.")
+    return true
+end function
+
+globals.commands["mkdir"] = { "name": "mkdir", "desc": "Create an empty directory.", "args": "[path]" }
+globals.commands["mkdir"]["run"] = function(argv = [])
+    if typeof(argv) != "list" then return print(globals.name + ": Invalid argument vector given.")
+    if argv.len != 2 then return print(globals.name + ": Takes one argument.")
+
+    file = null
+    if typeof(current.object) == "shell" or typeof(current.object) == "computer" then
+        object = current.object
+        if typeof(current.object) == "shell" then object = current.object.host_computer
+        path = ""
+        filename = ""
+        if argv[1].indexOf("/") == 0 then
+            path = parent_path(argv[1])
+            filename = argv[1].split("/")[-1]
+        else
+            if argv[1].indexOf("/") > 0 then
+                path = current.folder.path + "/" + parent_path(argv[1])
+                filename = argv[1].split("/")[-1]
+            else
+                path = current.folder.path
+                filename = argv[1]
+            end if
+        end if
+
+        object.create_folder(path, filename)
+        file = globals.libs.navTo(current.object, path + "/" + filename)
+        if not file then
+            print(globals.name + ": Directory not created.")
+            return false
+        end if
+    else
+        allFiles = globals.libs.findAll(globals.libs.toFile(current.object))
+        if not allFiles then return print(globals.name + ": Not a file object.")
+        if allFiles.len == 0 then return print(globals.name + ": No files in root folder.")
+
+        files = globals.libs.findAllWithWrite(allFiles)
+        if not files then return print(globals.name + ": Not a list of maps.")
+        if files.len == 0 then return print(globals.name + ": Cannot find any files.")
+
+        file = null
+        for f in files
+            if f.type == "folder" then
+                file = f.file
+                break
+            end if
+        end for
+        if not file then return print(globals.name + ": File not found.")
+
+        path = ""
+        filename = ""
+        if argv[1].indexOf("/") == 0 then
+            path = parent_path(argv[1])
+            filename = argv[1].split("/")[-1]
+        else
+            if argv[1].indexOf("/") > 0 then
+                path = current.folder.path + "/" + parent_path(argv[1])
+                filename = argv[1].split("/")[-1]
+            else
+                path = current.folder.path
+                filename = argv[1]
+            end if
+        end if
+        file.copy(path, filename)
+        file = globals.libs.navTo(current.object, path + "/" + filename)
+        if not file then
+            print(globals.name + ": Directory not created.")
+            return false
+        end if
+
+        files = file.get_folders + file.get_files
+        while files.len > 0
+            f = files.pull
+            f.delete
+        end while
+    end if
+    file.set_owner(current.user)
+    file.set_group(current.user)
+    file.chmod("u+rwx", true)
+    file.chmod("g+rwx", true)
+    file.chmod("o+rwx", true)
+    print(globals.name + ": Directory was created.")
+    return true
+end function
+
+globals.commands["rmdir"] = { "name": "rmdir", "desc": "Remove a directory.", "args": "[path]" }
+globals.commands["rmdir"]["run"] = function(argv = [])
+    if typeof(argv) != "list" then return print(globals.name + ": Invalid argument vector given.")
+    if argv.len != 2 then return print(globals.name + ": Takes one argument.")
+
+    file = null
+    if argv[1].indexOf("/") == 0 then
+        file = globals.libs.navTo(current.object, argv[1])
+    else
+        file = globals.libs.navTo(current.object, current.folder.path + "/" + argv[1])
+    end if
+    if not file then return print(globals.name + ": Directory not found.")
+    if not file.is_folder then return print(globals.name + ": Not a directory.")
+    if not file.has_permission("w") then return print(globals.name + ": Permission denied.")
+    if file.delete then
+        print(globals.name + ": Cannot delete directory.")
+        return false
+    end if
+    print(globals.name + ": Directory deleted.")
+    return true
+end function
+
+globals.commands["chmod"] = { "name": "chmod", "desc": "Change a file's permissions.", "args": "[(opt) -R] [ugo-/+rwx] [path]" }
+globals.commands["chmod"]["run"] = function(argv = [])
+    if typeof(argv) != "list" then return print(globals.name + ": Invalid argument vector given.")
+    if argv.len != 3 and argv.len != 4 then return print(globals.name + ": Takes two or three arguments.")
+
+    file = null
+    if argv[-1].indexOf("/") == 0 then
+        file = globals.libs.navTo(current.object, argv[-1])
+    else
+        file = globals.libs.navTo(current.object, current.folder.path + "/" + argv[-1])
+    end if
+    if not file then
+        print(globals.name + ": File or directory not found.")
+        return false
+    end if
+    result = null
+    if argv[1] == "-R" then
+        result = file.chmod(argv[-2], true)
+    else
+        result = file.chmod(argv[-2], false)
+    end if
+    if result then
+        print(globals.name + ": Failed to set permission.")
+        return false
+    end if
+    print(globals.name + ": Permissions set.")
+    return true
+end function
+
+globals.commands["chown"] = { "name": "chown", "desc": "Change a file's owner and group.", "args": "[(opt) -R] [user:group] [path]" }
+globals.commands["chown"]["run"] = function(argv = [])
+    if typeof(argv) != "list" then return print(globals.name + ": Invalid argument vector given.")
+    if argv.len != 3 and argv.len != 4 then return print(globals.name + ": Takes two or three arguments.")
+
+    file = null
+    if argv[-1].indexOf("/") == 0 then
+        file = globals.libs.navTo(current.object, argv[-1])
+    else
+        file = globals.libs.navTo(current.object, current.folder.path + "/" + argv[-1])
+    end if
+    if not file then
+        print(globals.name + ": File or directory not found.")
+        return false
+    end if
+    owner = null
+    group = null
+    if argv[-2].indexOf(":") > 0 then
+        owner = argv[-2].split(":")[0]
+        group = argv[-2].split(":")[1]
+    end if
+    if typeof(owner) != "string" or typeof(group) != "string" then
+        print(globals.name + ": Cannot get owner and group, improper formatting.")
+        return false
+    end if
+    if argv[1] == "-R" then
+        if file.set_owner(owner, true) == 0 then
+            print(globals.name + ": Failed to set owner.")
+            return false
+        else
+            print(globals.name + ": Owner set.")
+        end if
+        if file.set_group(group, true) == 0 then
+            print(globals.name + ": Failed to set owner.")
+            return false
+        else
+            print(globals.name + ": Group set.")
+        end if
+    else
+        if file.set_owner(owner, false) == 0 then
+            print(globals.name + ": Failed to set owner.")
+            return false
+        else
+            print(globals.name + ": Owner set.")
+        end if
+        if file.set_group(group, false) == 0 then
+            print(globals.name + ": Failed to set owner.")
+            return false
+        else
+            print(globals.name + ": Group set.")
+        end if
+    end if
+    return true
+end function
+
+globals.commands["ssh"] = { "name": "ssh", "desc": "Connect to remote shell.", "args": "[user@pass] [ip] [(opt) port]" }
+globals.commands["ssh"]["run"] = function(argv = [])
+    if typeof(argv) != "list" then return print(globals.name + ": Invalid argument vector given.")
+    if argv.len < 3 or argv.len > 4 then return print(globals.name + ": Takes three arguments one is optional.")
+
+    creds = argv[1].split("@")
+    user = creds[0]
+    pass = creds[1]
+
+    targetIP = argv[2]
+    if not is_valid_ip(targetIP) then targetIP = nslookup(targetIP)
+    if not is_valid_ip(targetIP) then
+        print(globals.name + ": Unknown network address.")
+        return false
+    end if
+
+    targetPort = 22
+    if argv.len > 3 then targetPort = argv[3].to_int
+    if typeof(targetPort) != "number" then
+        print(globals.name + ": Target port has to be a number.")
+        return false
+    end if
+    if targetPort <= 0 or targetPort > 65535 then
+        print(globals.name + ": Target port out of range.")
+        return false
+    end if
+
+    object = get_shell.connect_service(targetIP, targetPort, user, pass, "ssh")
+    if typeof(object) != "shell" then
+        print(globals.name + ": Cannot connect to ssh service.")
+        return false
+    end if
+
+    globals.objects.push({"object": object, "user": globals.libs.checkUser(object), "addr": "ssh", "vuln": "ssh", "localip": object.host_computer.local_ip, "publicip": object.host_computer.public_ip, "router": get_router(object.host_computer.public_ip) })
+    print("<color=white>Please use <b>objects</b> command to use this object.</color>")
+    return true
+end function
+
+globals.commands["ftp"] = { "name": "ftp", "desc": "Connect to remote ftp shell.", "args": "[user@pass] [ip] [(opt) port]" }
+globals.commands["ftp"]["run"] = function(argv = [])
+    if typeof(argv) != "list" then return print(globals.name + ": Invalid argument vector given.")
+    if argv.len < 3 or argv.len > 4 then return print(globals.name + ": Takes three arguments one is optional.")
+
+    creds = argv[1].split("@")
+    user = creds[0]
+    pass = creds[1]
+
+    targetIP = argv[2]
+    if not is_valid_ip(targetIP) then targetIP = nslookup(targetIP)
+    if not is_valid_ip(targetIP) then
+        print(globals.name + ": Unknown network address.")
+        return false
+    end if
+
+    targetPort = 22
+    if argv.len > 3 then targetPort = argv[3].to_int
+    if typeof(targetPort) != "number" then
+        print(globals.name + ": Target port has to be a number.")
+        return false
+    end if
+    if targetPort <= 0 or targetPort > 65535 then
+        print(globals.name + ": Target port out of range.")
+        return false
+    end if
+
+    object = get_shell.connect_service(targetIP, targetPort, user, pass, "ftp")
+    if typeof(object) != "shell" then
+        print(globals.name + ": Cannot connect to ftp service.")
+        return false
+    end if
+
+    print("<color=white>Starting ftp shell...</color>")
+    object.start_terminal
+    return true
+end function
+
+globals.commands["link"] = { "name": "link", "desc": "Display IP information.", "args": "" }
+globals.commands["link"]["run"] = function(argv = [])
+    if typeof(argv) != "list" then return print(globals.name + ": Invalid argument vector given.")
+    if argv.len != 1 then return print(globals.name + ": Takes no arguments.")
+
+    if current.computer != null and not current.computer.is_network_active then
+        print(globals.name + ": No network connection.")
+        return false
+    end if
+
+    print("ESSID: " + current.router.essid_name)
+    print("BSSID: " + current.router.bssid_name)
+    print("Public IP: " + current.publicip)
+    print("Local IP: " + current.localip)
+    if current.computer != null then
+        print("Gateway: " + current.computer.network_gateway)
+    else
+        print("Gateway: 0.0.0.0")
+    end if
+    return true
+end function
+
+globals.commands["scan"] = { "name": "scan", "desc": "Port scanner and database writer.", "args": "[IP] [(opt) Port]" }
+globals.commands["scan"]["run"] = function(argv = [])
+    if typeof(argv) != "list" then return print(globals.name + ": Invalid argument vector given.")
+    if argv.len < 2 or argv.len > 3 then return print(globals.name + ": Invalid arguments given.")
+
+    if argv.len == 2 then
+        ret = globals.libs.getPorts(argv[1])
+        if not ret then return print(globals.name + ": Network address not found.")
+        if ret.ports.len == 0 then return print(globals.name + ": Scan finished. No ports found.")
+
+        info = "PORT STATE SERVICE VERSION LAN"
+        for port in ret.ports
+            servinfo = ret.router.port_info(port)
+            status = "open"
+
+            if not is_lan_ip(ret.targetIP) and port.is_closed then
+                status = "closed"
+            end if
+            info = info + char(10) + port.port_number + " " + status + " " + servinfo + " " + port.get_lan_ip
+        end for
+        print(format_columns(info))
+    else if argv.len == 3 then
+        if argv[2] == "all" then
+            ret = globals.libs.getPorts(argv[1])
+            if not ret then return print(globals.name + ": Network address not found.")
+            if ret.ports.len == 0 then return print(globals.name + ": Scan finished. No ports found.")
+
+            globals.libs.scanPort(ret.targetIP, 0)
+            for port in ret.ports
+                if not is_lan_ip(ret.targetIP) and port.is_closed then
+                    continue
+                end if
+
+                globals.libs.scanPort(ret.targetIP, port.port_number)
+            end for
+        else
+            targetIP = argv[1]
+            if not is_valid_ip(targetIP) then targetIP = nslookup(targetIP)
+            if not is_valid_ip(targetIP) then
+                print(globals.name + ": Target IP not found.")
+                return false
+            end if
+
+            targetPort = argv[2].to_int
+            if typeof(targetPort) != "number" then
+                print(globals.name + ": Port given was not a number.")
+                return false
+            end if
+
+            globals.libs.scanPort(targetIP, targetPort)
+        end if
+    else
+        print(globals.name + ": Invalid arguments given.")
+    end if
+    return true
+end function
+
+globals.commands["oclear"] = { "name": "oclear", "desc": "Clear all objects.", "args": "" }
+globals.commands["oclear"]["run"] = function(argv = [])
+    if typeof(argv) != "list" then return print(globals.name + ": Invalid argument vector given.")
+    if argv.len != 1 then return print(globals.name + ": Takes no arguments.")
+
+    globals.objects = []
+    print(globals.name + ": Objects cleared.")
+    return true
+end function
+
+globals.commands["rshell"] = { "name": "rshell", "desc": "Get rshell objects or start rshell on remote machine.", "args": "[(opt) [ip] [port]]" }
+globals.commands["rshell"]["run"] = function(argv = [])
+    if typeof(argv) != "list" then return print(globals.name + ": Invalid argument vector given.")
+    if argv.len != 1 and argv.len != 3 then return print(globals.name + ": Takes two optional arguments.")
+
+    if argv.len == 1 then
+        if (current.publicip != local.publicip and current.localip != local.localip) then
+            print(globals.name + ": <color=red>Backdoor server only available on local object.</color>")
+            return false
+        end if
+
+        globals.objects = []
+        rshells = globals.metaxploit.rshell_server
+        if typeof(rshells) == "string" then
+            print(globals.name + ": <color=red>rshelld service not running.</color>")
+            return false
+        end if
+
+        for object in rshells
+            if not globals.objects.hasIndex(object) then
+                globals.objects.push({"object": object, "user": globals.libs.checkUser(object), "addr": "rshell", "vuln": "rshell", "localip": object.host_computer.local_ip, "publicip": object.host_computer.public_ip, "router": get_router(object.host_computer.public_ip) })
+            end if
+        end for
+
+        if rshells.len == 0 then
+            print(globals.name + ": No rshell objects found.")
+            return false
+        else
+            print(globals.name + ": Please use objects command.")
+        end if
+    else
+        if current.publicip == local.publicip and current.localip == local.localip then
+            print(globals.name + ": <color=red>Backdoor only available on remote machine.</color>")
+            return false
+        end if
+
+        targetIP = argv[1]
+        if not is_valid_ip(targetIP) then targetIP = nslookup(argv[1])
+        if not is_valid_ip(targetIP) then
+            print(globals.name + ": Invalid domain name or IP.")
+            return false
+        end if
+
+        targetPort = argv[2].to_int
+        if typeof(targetPort) != "number" then
+            print(globals.name + ": Needs to be a number.")
+            return false
+        end if
+        if targetPort < 0 or targetPort > 65535 then
+            print(globals.name + ": Port given out of range.")
+            return false
+        end if
+
+        object = globals.metaxploit.rshell_client(targetIP, targetPort, "rsh")
+        if typeof(object) == "string" or not object then
+            print(globals.name + ": Cannot create a backdoor.")
+            return false
+        end if
+
+        print(globals.name + ": Please use rshell without arguments for objects.\n" + globals.name + ": Created a backdoor.")
+    end if
+    return true
+end function
+
+globals.commands["rhack"] = { "name": "rhack", "desc": "Remote machine exploitation.", "args": "[IP] [Port] [(opt) injectArg]" }
+globals.commands["rhack"]["run"] = function(argv = [])
+    if typeof(argv) != "list" then return print(globals.name + ": Invalid argument vector given.")
+    if argv.len < 3 or argv.len > 4 then return print(globals.name + ": Invalid arguments given.")
+
+    targetIP = argv[1]
+    if not is_valid_ip(targetIP) then targetIP = nslookup(targetIP)
+    if not is_valid_ip(targetIP) then return print(globals.name + ": Target IP not valid.")
+
+    injectArg = ""
+    targetPort = argv[2].to_int
+    if typeof(targetPort) != "number" then return print(globals.name + ": Target Port is not a number.")
+    if argv.len > 3 then injectArg = argv[3]
+
+    netsession = globals.metaxploit.net_use(targetIP, targetPort)
+    if not netsession then return print(globals.name + ": Cannot connect to net session.")
+    metalib = netsession.dump_lib
+    if not metalib then return print(globals.name + ": Cannot dump library.")
+    exploits = globals.libs.scanLib(metalib, globals.metaxploit)
+    if not exploits then
+        print(globals.name + ": No exploits found.")
+        return false
+    end if
+
+    objects = []
+    for exploit in exploits.memorys
+        print("<color=#FF0000>" + exploit.key + "</color>")
+        for value in exploit.value
+            print(char(9) + "<color=#FFFF00>" + value + "</color>")
+            object = metalib.overflow(exploit.key, value, injectArg)
+            if typeof(object) != "shell" and typeof(object) != "computer" and typeof(object) != "file" then continue
+            compinfo = globals.libs.checkIP(object, targetIP, targetPort, get_router)
+            if not compinfo then continue
+            if not globals.objects.hasIndex(object) then
+                objects.push({"object": object, "user": globals.libs.checkUser(object), "addr": exploit.key, "vuln": value, "localip": compinfo.localip, "publicip": compinfo.publicip, "router": compinfo.router })
+            end if
+        end for
+    end for
+
+    if objects.len > 0 then
+        for object in objects
+            globals.objects.push(object)
+        end for
+        print("<color=white>Please use <b>objects</b> command to switch to remote machine.</color>")
+    end if
+    return true
+end function
+
+globals.commands["lhack"] = { "name": "lhack", "desc": "Local machine exploitation.", "args": "[path/to/lib] [(opt) injectArg]" }
+globals.commands["lhack"]["run"] = function(argv = [])
+    if typeof(argv) != "list" then return print(globals.name + ": Invalid argument vector given.")
+    if argv.len < 2 or argv.len > 3 then return print(globals.name + ": Invalid arguments given.")
+
+    injectArg = ""
+    if argv.len > 2 then injectArg = argv[2]
+
+    metalib = globals.metaxploit.load(argv[1])
+    if not metalib then return print(globals.name + ": Cannot dump library.")
+    exploits = globals.libs.scanLib(metalib, metaxploit)
+    if not exploits then
+        print(globals.name + ": Please update metaxploit.so.")
+        return false
+    end if
+
+    objects = []
+    for exploit in exploits.memorys
+        print("<color=#FF0000>" + exploit.key + "</color>")
+        for value in exploit.value
+            print(char(9) + "<color=#FFFF00>" + value + "</color>")
+            object = metalib.overflow(exploit.key, value, injectArg)
+            if typeof(object) != "shell" and typeof(object) != "computer" and typeof(object) != "file" then continue
+            localIP = current.localip
+            if typeof(object) == "shell" then localIP = object.host_computer.local_ip
+            if typeof(object) == "computer" then localIP = object.local_ip
+            if not globals.objects.hasIndex(object) then
+                objects.push({"object": object, "user": globals.libs.checkUser(object), "addr": exploit.key, "vuln": value, "localip": localIP, "publicip": current.publicip, "router": current.router })
+            end if
+        end for
+    end for
+
+    if objects.len > 0 then
+        for object in objects
+            globals.objects.push(object)
+        end for
+        print("<color=white>Please use <b>objects</b> command to switch to remote machine.</color>")
+    end if
+    return true
+end function
+
+globals.commands["wipe"] = { "name": "wipe", "desc": "Clean the system of my shell.", "args": "" }
+globals.commands["wipe"]["run"] = function(argv = [])
+    if typeof(argv) != "list" then return print(globals.name + ": Invalid argument vector given.")
+    if argv.len > 1 then return print(globals.name + ": Takes no arguments.")
+
+    answer = ""
+    while answer != "y" and answer != "Y" and answer != "n" and answer != "N"
+        answer = user_input("Do you wish to wipe (Y/N)? ", 0, 0)
+        answer = answer.trim
+    end while
+    if answer == "n" or answer == "N" then return print(globals.name + ": Not wiping.")
+
+    filenames = ["payload", "metaxploit.so", "ScanLan.exe", program_path.split("/")[-1]]
+    for filename in filenames
+        fileobj = globals.libs.navTo(current.object, current.folder.path + "/" + filename)
+        if not fileobj then continue
+        result = fileobj.delete
+        if result == 0 then
+            print(globals.name + ": Could not delete '" + filename + "'.")
+        else
+            print(globals.name + ": File '" + filename + "' wiped.")
+        end if
+    end for
+
+    allFiles = globals.libs.findAll(globals.libs.toFile(current.object))
+    if not allFiles then return print(globals.name + ": Not a file object.")
+    if allFiles.len == 0 then return print(globals.name + ": No files in root folder.")
+
+    files = globals.libs.findAllWithWrite(allFiles)
+    if not files then return print(globals.name + ": Not a list of maps.")
+    if files.len == 0 then return print(globals.name + ": Cannot find any files.")
+
+    file = null
+    for f in files
+        if f.type == "text" then
+            file = f.file
+            break
+        end if
+    end for
+    if not file then return print(globals.name + ": File not found.")
+
+    result = file.copy("/var", "system.log")
+    if typeof(result) == "string" then
+        print(globals.name + ": Failed to clean log file.")
+        return false
+    end if
+
+    file = globals.libs.navTo(current.object, "/var/system.log")
+    if not file then
+        print(globals.name + ": File not found.")
+        return false
+    end if
+    file.set_content("")
+    print(globals.name + ": Log cleaned!")
+    
+    return true
+end function
+
+globals.commands["clear"] = { "name": "clear", "desc": "Clear the terminal screen.", "args": "" }
+globals.commands["clear"]["run"] = function(argv = [])
+    if typeof(argv) != "list" then return print(globals.name + ": Invalid argument vector given.")
+    if argv.len > 1 then return print(globals.name + ": Takes no arguments.")
+    return clear_screen
+end function
+
+globals.commands["local"] = { "name": "local", "desc": "Switch back to local machine.", "args": "" }
+globals.commands["local"]["run"] = function(argv = [])
+    if typeof(argv) != "list" then return print(globals.name + ": Invalid argument vector given.")
+    if argv.len > 1 then return print(globals.name + ": Takes no arguments.")
+    if current.publicip == local.publicip and current.localip == local.localip then
+        return print(globals.name + ": <color=yellow>Already on <b>local</b> machine.</color>")
+    end if
+    current.user = local.user
+    current.object = local.object
+    current.computer = local.computer
+    current.folder = local.folder
+    current.router = local.router
+    current.publicip = local.computer.public_ip
+    current.localip = local.computer.local_ip
+    return true
+end function
+
+globals.commands["remote"] = { "name": "remote", "desc": "Switch back to remote machine.", "args": "" }
+globals.commands["remote"]["run"] = function(argv = [])
+    if typeof(argv) != "list" then return print(globals.name + ": Invalid argument vector given.")
+    if argv.len > 1 then return print(globals.name + ": Takes no arguments.")
+    if (current.publicip == local.publicip and current.localip == local.localip) and (remote.publicip == local.publicip and remote.localip == local.localip) then
+        return print(globals.name + ": <color=yellow>Already on <b>local</b> machine.</color>")
+    end if
+    if current.publicip == remote.publicip and current.localip == remote.localip then
+        return print(globals.name + ": <color=orange>Already on <b>remote</b> machine.</color>")
+    end if
+    current.user = remote.user
+    current.object = remote.object
+    current.computer = remote.computer
+    current.folder = remote.folder
+    current.router = remote.router
+    current.publicip = remote.computer.public_ip
+    current.localip = remote.computer.local_ip
+    return true
+end function
+
+globals.commands["objects"] = { "name": "objects", "desc": "Display all objects or select an object.", "args": "[(opt) ID]" }
+globals.commands["objects"]["run"] = function(argv = [])
+    if typeof(argv) != "list" then return print(globals.name + ": Invalid argument vector given.")
+    if argv.len > 2 then return print(globals.name + ": Takes one optional argument.")
+
+    if argv.len == 1 then
+        if globals.objects.len == 0 then return print(globals.name + ": No objects found!")
+        i = 0
+        info = "ID TYPE ACCESS PUBLIC LAN"
+        for object in globals.objects
+            info = info + char(10) + str(i) + " " + typeof(object.object) + " " + object.user + " " + object.publicip + " " + object.localip
+            i = i + 1
+        end for
+        print(format_columns(info))
+    else
+        objectid = argv[1].to_int
+        if typeof(objectid) == "string" then return print(globals.name + ": Has to be a number.")
+        if objectid < 0 or objectid > (globals.objects.len - 1) then
+            return print(globals.name + ": Object ID out of range.")
+        end if
+        current.user = globals.objects[objectid].user
+        current.object = globals.objects[objectid].object
+        current.computer = function
+            if typeof(globals.objects[objectid].object) == "shell" then return globals.objects[objectid].object.host_computer
+            if typeof(globals.objects[objectid].object) == "computer" then return globals.objects[objectid].object
+            return null
+        end function
+        current.folder = function
+            if globals.objects[objectid].user == "root" then
+                return globals.libs.navTo(globals.objects[objectid].object, "/root")
+            else
+                file = globals.libs.navTo(globals.objects[objectid].object, "/home/" + globals.objects[objectid].user)
+                if file != null then
+                    return globals.libs.navTo(globals.objects[objectid].object, file.path)
+                end if
+            end if
+            return globals.libs.toFile(globals.objects[objectid].object)
+        end function
+        current.router = globals.objects[objectid].router
+        current.publicip = globals.objects[objectid].publicip
+        current.localip = globals.objects[objectid].localip
+    end if
+    return true
+end function
+
+globals.commands["random"] = { "name": "random", "desc": "Get a random IP to hack.", "args": "" }
+globals.commands["random"]["run"] = function(argv = [])
+    if typeof(argv) != "list" then return print(globals.name + ": Invalid argument vector given.")
+    if argv.len != 1 then return print(globals.name + ": Takes NO arguments.")
+
+    randomIP = globals.libs.getRandomIP
+    if not randomIP then
+        print("Cannot get random IP.")
+        return false
+    end if
+    print("Random global IP: " + randomIP)
+    return true
+end function
+
+globals.commands["dbscan"] = { "name": "dbscan", "desc": "Scan systems to write to database.", "args": "[amount]" }
+globals.commands["dbscan"]["run"] = function(argv = [])
+    if typeof(argv) != "list" then return print(globals.name + ": Invalid argument vector given.")
+    if argv.len != 2 then return print(globals.name + ": Takes one argument.")
+    if not globals.db.hasIndex("exploits") or (globals.db.hasIndex("exploits") and globals.db.exploits == null) then return print(globals.name + ": Not connected to database.")
+
+    amount = argv[1].to_int
+    if typeof(amount) != "number" then
+        print(globals.name + ": Not given a number.")
+        return false
+    end if
+
+    if amount <= 0 or amount > 25 then
+        print(globals.name + ": Out of range; only 1 to 25.")
+        return false
+    end if
+
+    while amount > 0
+        ip = globals.libs.getRandomIP
+        if not ip then
+            print(globals.name + ": Cannot get random IP.")
+            return false
+        end if
+        ret = globals.libs.getPorts(ip)
+        if not ret then
+            print(globals.name + ": Failed to get ports.")
+            continue
+        end if
+
+        if ret.ports.len == 0 then
+            print(globals.name + ": Scan finished. No ports found.")
+            continue
+        end if
+
+        globals.libs.scanPort(ret.targetIP, 0)
+        for port in ret.ports
+            if not is_lan_ip(ret.targetIP) and port.is_closed then
+                continue
+            end if
+
+            globals.libs.scanPort(ret.targetIP, port.port_number)
+        end for
+        amount = amount - 1
+    end while
+
+    return true
+end function
+
+globals.commands["dbquery"] = { "name": "dbquery", "desc": "Query the database.", "args": "[(opt) libname]" }
+globals.commands["dbquery"]["run"] = function(argv = [])
+    if typeof(argv) != "list" then return print(globals.name + ": Invalid argument vector given.")
+    if argv.len > 2 then return print(globals.name + ": Takes one optional argument.")
+    if not globals.db.hasIndex("exploits") or (globals.db.hasIndex("exploits") and globals.db.exploits == null) then return print(globals.name + ": Not connected to database.")
+
+    if argv.len == 1 then
+        globals.libs.dbQuery("", "")
+    else
+        globals.libs.dbQuery(argv[1], "")
+    end if
+    return true
+end function
+
+globals.commands["dbcreate"] = { "name": "dbcreate", "desc": "Create a database.", "args": "" }
+globals.commands["dbcreate"]["run"] = function(argv = [])
+    if typeof(argv) != "list" then return print(globals.name + ": Invalid argument vector given.")
+    if argv.len != 1 then return print(globals.name + ": Takes no arguments.")
+    if globals.libs.dbCheck then
+        print("<color=red>Database already exists.")
+        return true
+    end if
+    return globals.libs.dbCreate
+end function
+
+globals.commands["dbdelete"] = { "name": "dbdelete", "desc": "Delete an entry from the database.", "args": "[(opt) foldername]" }
+globals.commands["dbdelete"]["run"] = function(argv = [])
+    if typeof(argv) != "list" then return print(globals.name + ": Invalid argument vector given.")
+    if argv.len > 2 then return print(globals.name + ": Takes one optional argument.")
+    if not globals.db.hasIndex("exploits") or (globals.db.hasIndex("exploits") and globals.db.exploits == null) then return print(globals.name + ": Not connected to database.")
+
+    if argv.len == 2 then
+        if globals.libs.dbDelete(argv[1]) then
+            print("<color=yellow>Database deleted.</color>")
+        else
+            print("<color=orange>Database failed to delete.</color>")
+        end if
+    else
+        if globals.libs.dbDelete then
+            print("<color=yellow>Database deleted.</color>")
+        else
+            print("<color=orange>Database failed to delete.</color>")
+        end if
+    end if
+    return true
+end function
+
+globals.commands["clean"] = { "name": "clean", "desc": "Clear the log file.", "args": "" }
+globals.commands["clean"]["run"] = function(argv = [])
+    if typeof(argv) != "list" then return print(globals.name + ": Invalid argument vector given.")
+    if argv.len != 1 then return print(globals.name + ": Does NOT take any arguments.")
+    if current.user != "root" then return print(globals.name + ": Must have root access.")
+
+    allFiles = globals.libs.findAll(globals.libs.toFile(current.object))
+    if not allFiles then return print(globals.name + ": Not a file object.")
+    if allFiles.len == 0 then return print(globals.name + ": No files in root folder.")
+
+    files = globals.libs.findAllWithWrite(allFiles)
+    if not files then return print(globals.name + ": Not a list of maps.")
+    if files.len == 0 then return print(globals.name + ": Cannot find any files.")
+
+    file = null
+    for f in files
+        if f.type == "text" then
+            file = f.file
+            break
+        end if
+    end for
+    if not file then return print(globals.name + ": File not found.")
+
+    result = file.copy("/var", "system.log")
+    if typeof(result) == "string" then
+        print(globals.name + ": Failed to clean log file.")
+        return false
+    end if
+
+    file = globals.libs.navTo(current.object, "/var/system.log")
+    if not file then
+        print(globals.name + ": File not found.")
+        return false
+    end if
+    file.set_content("")
+    print(globals.name + ": Log cleaned!")
+    return true
+end function
+
+globals.commands["secure"] = { "name": "secure", "desc": "Secure your local machine or a remote server.", "args": "[type]" }
+globals.commands["secure"]["run"] = function(argv = [])
+    if typeof(argv) != "list" then return print(globals.name + ": Invalid argument vector given.")
+    if argv.len != 2 then return print(globals.name + ": Takes one argument.")
+    if current.user != "root" then return print(globals.name + ": This command requires root priviledges.")
+
+    if argv[1] == "local" then
+        rootFolder = globals.libs.navTo(local.object, "/")
+        if not rootFolder then
+            print(globals.name + ": Root directory not found.")
+            return false
+        end if
+        result1 = rootFolder.set_owner("root", true)
+        result2 = rootFolder.set_group("root", true)
+        if result1 or result2 then
+            print(globals.name + ": Root directory owner and/or group NOT set.")
+            return false
+        end if
+        print(globals.name + ": Root directory owner and/or group set.")
+        rootFolder.chmod("o-rwx", true)
+        rootFolder.chmod("g-rwx", true)
+        rootFolder.chmod("u+rwx", true)
+        print(globals.name + ": Permissions set on root directory recursively.")
+
+        filenames = ["Terminal.exe", "AdminMonitor.exe", "ScanLan.exe", "sudo", "payload", "metaxploit.so", "crypto.so", program_path.split("/")[-1]]
+        folders = ["/lib", "/bin", "/usr/bin", parent_path(program_path), local.folder.path]
+        for filename in filenames
+            for folder in folders
+                file = globals.libs.navTo(local.object, folder + "/" + filename)
+                if not file then continue
+                file.set_owner("root", false)
+                file.set_group("root", false)
+                print(globals.name + ": File owner and/or group set on '" + file.name + "'.")
+                if file.name == "sudo" then
+                    file.chmod("o-rx", false)
+                    file.chmod("g+rx", false)
+                    file.chmod("u+rwx", false)
+                else
+                    file.chmod("o+rx", false)
+                    file.chmod("g+rx", false)
+                    file.chmod("u+rwx", false)
+                end if
+                print(globals.name + ": Permissions set on '" + file.name + "'.")
+                break
+            end for
+        end for
+        print(globals.name + ": Secured local machine.")
+    else if argv[1] == "remote" then
+        rootFolder = globals.libs.navTo(current.object, "/")
+        if not rootFolder then
+            print(globals.name + ": Root directory not found.")
+            return false
+        end if
+        result1 = rootFolder.set_owner("root", true)
+        result2 = rootFolder.set_group("root", true)
+        if result1 or result2 then
+            print(globals.name + ": Root directory owner and/or group NOT set.")
+            return false
+        end if
+        print(globals.name + ": Root directory owner and/or group set.")
+        rootFolder.chmod("o-rwx", true)
+        rootFolder.chmod("g-rwx", true)
+        rootFolder.chmod("u+rwx", true)
+        print(globals.name + ": Permissions set on root directory recursively.")
+
+        answer = ""
+        while answer != "y" and answer != "Y" and answer != "n" and answer != "N"
+            answer = user_input("Do you wish to secure a router (Y/N)? ")
+        end while
+
+        filenames = ["Terminal.exe", "AdminMonitor.exe", "ScanLan.exe", "payload", "metaxploit.so", "crypto.so", program_path.split("/")[-1]]
+        if answer == "y" or answer == "Y" then
+            filenames = ["Terminal.exe", "AdminMonitor.exe", "ScanLan.exe", "sudo", "metaxploit.so", "crypto.so", program_path.split("/")[-1]]
+            print(globals.name + ": Securing router...")
+        else
+            print(globals.name + ": Securing server...")
+        end if
+
+        folders = ["/lib", "/bin", "/usr/bin", parent_path(program_path), current.folder.path]
+        for filename in filenames
+            for folder in folders
+                file = globals.libs.navTo(current.object, folder + "/" + filename)
+                if not file then continue
+                file.set_owner("root", false)
+                file.set_group("root", false)
+                print(globals.name + ": File owner and/or group set on '" + file.name + "'.")
+                if file.name == "sudo" then
+                    file.chmod("o-rx", false)
+                    file.chmod("g+rx", false)
+                    file.chmod("u+rwx", false)
+                else
+                    file.chmod("o+rx", false)
+                    file.chmod("g+rx", false)
+                    file.chmod("u+rwx", false)
+                end if
+                print(globals.name + ": Permissions set on '" + file.name + "'.")
+            end for
+        end for
+        print(globals.name + ": Secured remote machine.")
+    else
+        print(globals.name + ": Valid types are 'local' or 'remote'.")
+        return false
+    end if
+    return true
+end function
+
+globals.commands["vfile"] = { "name": "vfile", "desc": "Add or clear files to/from virtual file array.", "args": "[(opt) [path]]" }
+globals.commands["vfile"]["run"] = function(argv = [])
+    if typeof(argv) != "list" then return print(globals.name + ": Invalid argument vector given.")
+    if argv.len > 2 then return print(globals.name + ": Takes two arguments and they are optional arguments.")
+
+    if argv.len == 2 then
+        file = null
+        if argv[1].indexOf("/") == 0 then
+            file = globals.libs.navTo(globals.current.object, argv[1])
+        else
+            file = globals.libs.navTo(globals.current.object, globals.current.folder.path + "/" + argv[1])
+        end if
+        if not file then
+            print(globals.name + ": File not found.")
+            return false
+        end if
+        if not file.has_permission("r") then
+            print(globals.name + ": Permission denied.")
+            return false
+        end if
+        globals.vfile.push(file)
+        print("<color=yellow>File added.</color>")
+    else
+        if typeof(current.object) == "shell" then
+            if vfile.len > 0 then
+                option = -1
+                while option < 0 or option > vfile.len
+                    i = 1
+                    info = "ID PATH FILE" + char(10) + "0" + " " + "All"
+                    for file in vfile
+                        info = info + char(10) + str(i) + " " + parent_path(file.path) + " " + file.name
+                        i = i + 1
+                    end for
+                    print(format_columns(info))
+
+                    option = user_input("Enter ID (Blank to quit): ").to_int
+                    if typeof(option) != "number" then break
+                end while
+
+                if typeof(option) != "number" then
+                    print(globals.name + ": <color=white>You chose to quit.</color>")
+                else
+                    if option != 0 then
+                        result = current.object.scp(vfile[option-1].path, local.folder.path, local.object)
+                        if typeof(result) == "string" then
+                            print(globals.name + ": <color=yellow>Virtual file failed to download.</color>")
+                        else
+                            print(globals.name + ": <color=yellow>Virtual file downloaded.</color>")
+                        end if
+                    else
+                        print(globals.name + ": <color=yellow>Downloading all virtual files...")
+                        for file in vfile
+                            result = current.object.scp(file.path, local.folder.path, local.object)
+                            if typeof(result) == "string" then
+                                print(globals.name + ": <color=yellow>Virtual file failed to download.</color>")
+                            else
+                                print(globals.name + ": <color=yellow>Virtual file downloaded.</color>")
+                            end if
+                        end for
+                    end if
+                end if
+            else
+                print(globals.name + ": <color=yellow>There are no files in virtual file storage.</color>")
+            end if
+        else
+            print("<color=yellow>Get a <b>shell</b> for transfer.</color>")
+        end if
+
+        answer = ""
+        while answer != "y" and answer != "Y" and answer != "n" and answer != "N"
+            answer = user_input("Do you want to clear virtual file objects (Y/N)? ")
+        end while
+        if answer == "n" or answer == "N" then return false
+        globals.vfile = []
+        print("<color=white>Virtual files cleared.</color>")
+    end if
+    return true
+end function
+
+globals.commands["find"] = { "name": "find", "desc": "Find all files or all readable, writeable or executable.", "args": "[(opt) -rwx]" }
+globals.commands["find"]["run"] = function(argv = [])
+    if typeof(argv) != "list" then return print(globals.name + ": Invalid argument vector given.")
+    if argv.len > 2 then return print(globals.name + ": Takes one optional argument.")
+
+    allFiles = globals.libs.findAll(globals.libs.toFile(current.object))
+    if not allFiles then return print(globals.name + ": Not a file object.")
+    if allFiles.len == 0 then return print(globals.name + ": No files in root folder.")
+    
+    if argv.len == 2 then
+        if argv[1] == "-r" then
+            files = globals.libs.findAllWithRead(allFiles)
+            if not files then return print(globals.name + ": Not a list.")
+            if files.len == 0 then return print(globals.name + ": Cannot find any files.")
+
+            for file in files
+                print(file.file.path)
+            end for
+        else if argv[1] == "-w" then
+            files = globals.libs.findAllWithWrite(allFiles)
+            if not files then return print(globals.name + ": Not a list.")
+            if files.len == 0 then return print(globals.name + ": Cannot find any files.")
+
+            for file in files
+                print(file.file.path)
+            end for
+        else if argv[1] == "-x" then
+            files = globals.libs.findAllWithExec(allFiles)
+            if not files then return print(globals.name + ": Not a list.")
+            if files.len == 0 then return print(globals.name + ": Cannot find any files.")
+
+            for file in files
+                print(file.file.path)
+            end for
+        else
+            print(globals.name + ": Unknown option '" + argv[1] + "'.")
+        end if
+    else
+        for file in allFiles
+            print(file.path)
+        end for
+    end if
+    return true
+end function
+
+globals.commands["whois"] = { "name": "whois", "desc": "Lookup information about an internet address.", "args": "[ip]" }
+globals.commands["whois"]["run"] = function(argv = [])
+    if typeof(argv) != "list" then return print(globals.name + ": Invalid argument vector given.")
+    if argv.len != 2 then return print(globals.name + ": Takes one argument.")
+
+    isDomain = false
+    targetIP = argv[1]
+    if not is_valid_ip(targetIP) then
+        targetIP = nslookup(targetIP)
+        if not is_valid_ip(targetIP) then
+            print(globals.name + ": Invalid IP or domain name.")
+            return false
+        end if
+        isDomain = true
+    end if
+    if isDomain then
+        print("Domain IP: " + targetIP)
+    end if
+    print(whois(targetIP))
+    return true
+end function
+
+globals.commands["nslookup"] = { "name": "nslookup", "desc": "Lookup information about a domain.", "args": "[www.domain.com]" }
+globals.commands["nslookup"]["run"] = function(argv = [])
+    if typeof(argv) != "list" then return print(globals.name + ": Invalid argument vector given.")
+    if argv.len != 2 then return print(globals.name + ": Takes one argument.")
+
+    result = nslookup(argv[1])
+    if not is_valid_ip(result) then
+        print(globals.name + ": Invalid domain name.")
+        return false
+    end if
+    print("Domain Name: " + argv[1] + "\nDomain IP: " + result)
+    return true
+end function
+
+globals.commands["version"] = { "name": "version", "desc": "Version number of this shell.", "args": "" }
+globals.commands["version"]["run"] = function(argv = [])
+    if typeof(argv) != "list" then return print(globals.name + ": Invalid argument vector given.")
+    if argv.len > 1 then return print(globals.name + ": Takes NO arguments.")
+    print("Shell version: " + str(globals.version))
+    print("Creation Date: " + globals.date)
+    print("Developer: " + globals.coder)
+    return true
+end function
+
+globals.commands["exit"] = { "name": "exit", "desc": "Exit this shell.", "args": "" }
+globals.commands["exit"]["run"] = function(argv = [])
+    if typeof(argv) != "list" then return print(globals.name + ": Invalid argument vector given.")
+    if argv.len > 1 then return print(globals.name + ": Takes NO arguments.")
+    globals.running = false
+    return true
+end function
+
+// ----------------- Main Program --------------------
+
+if params.len != 0 then exit("Usage: " + program_path.split("/")[-1])
+
+// Execute given command with arguments.
+CommandExecute = function(argv = [])
+    if typeof(argv) != "list" then return print(globals.name + ": Invalid type, needs to be of type 'string'.")
+    //if argv.len > 1 and argv[1] == "" then return print(globals.name + ": No arguments given when expected.")
+
+    commands = globals.commands
+    if typeof(current.object) == "shell" or typeof(current.object) == "computer" then
+        commands = commands + globals.commandsComputer
+        if typeof(current.object) == "shell" then
+            commands = commands + globals.commandsShell
+        end if
+    end if
+
+    if not commands.hasIndex(argv[0].lower.trim) then return print(globals.name + ": Command not found!")
+    command = commands[argv[0].lower.trim]
+    if argv.len > 1 then
+        if argv[1] == "-h" or argv[1] == "--help" then
+            return print("Usage: " + command.name + " " + command.args)
+        end if
+    end if
+
+    return command.run(argv)
+end function
+
+// Connect to the database server if there is one available.
+if globals.libs.dbCheck then
+    print("<color=yellow>Database Status:</color> <color=green>Available</color>")
+else
+    print("<color=yellow>Database Status:</color> <color=red>Not Available</color>")
+end if
+
+// Main Loop for a shell.
+while globals.running
+    input = user_input("<color=#33AA88>" + current.user + "@" + current.publicip + " [" + typeof(current.object) + "] # ", 0, 0)
+    if input == "" then continue
+    CommandExecute(input.trim.split(" "))
+end while
