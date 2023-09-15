@@ -434,8 +434,10 @@ globals.libs.scanLib = function(metalib, metax)
     if not metalib then return null
     if not metax then return null
 
-    ret = globals.libs.dbQuery(metalib.lib_name, metalib.version)
-    if ret != null then return ret
+    if globals.db.folder != null or globals.db.hasIndex("exploits") then
+        ret = globals.libs.dbQuery(metalib.lib_name, metalib.version)
+        if ret != null then return ret
+    end if
 
     ret = {}
     ret.name = metalib.lib_name
@@ -454,10 +456,12 @@ globals.libs.scanLib = function(metalib, metax)
         end for
     end for
 
-    if globals.libs.dbWrite(ret) then
-        print("<color=yellow>Library '" + ret.name + "' version " + ret.version + " added.")
-    else
-        print("<color=orange>Library '" + ret.name + "' version " + ret.version + " already exists.")
+    if globals.db.folder != null or globals.db.hasIndex("exploits") then
+        if globals.libs.dbWrite(ret) then
+            print("<color=yellow>Library '" + ret.name + "' version " + ret.version + " added.")
+        else
+            print("<color=orange>Library '" + ret.name + "' version " + ret.version + " already exists.")
+        end if
     end if
 
     return ret
@@ -1368,6 +1372,7 @@ globals.commands["scan"]["run"] = function(argv = [])
         print(format_columns(info))
     else if argv.len == 3 then
         if argv[2] == "all" then
+            if globals.db.folder == null or globals.hasIndex("exploits") then return print(globals.name + ": Not connected to database.")
             ret = globals.libs.getPorts(argv[1])
             if not ret then return print(globals.name + ": Network address not found.")
             if ret.ports.len == 0 then return print(globals.name + ": Scan finished. No ports found.")
@@ -1381,20 +1386,21 @@ globals.commands["scan"]["run"] = function(argv = [])
                 globals.libs.scanPort(ret.targetIP, port.port_number)
             end for
         else
-            targetIP = argv[1]
-            if not is_valid_ip(targetIP) then targetIP = nslookup(targetIP)
-            if not is_valid_ip(targetIP) then
-                print(globals.name + ": Target IP not found.")
-                return false
-            end if
-
             targetPort = argv[2].to_int
-            if typeof(targetPort) != "number" then
+            if typeof(targetPort) == "number" then
+                if globals.db.folder == null or globals.hasIndex("exploits") then return print(globals.name + ": Not connected to database.")
+                targetIP = argv[1]
+                if not is_valid_ip(targetIP) then targetIP = nslookup(targetIP)
+                if not is_valid_ip(targetIP) then
+                    print(globals.name + ": Target IP not found.")
+                    return false
+                end if
+
+                globals.libs.scanPort(targetIP, targetPort)
+            else
                 print(globals.name + ": Port given was not a number.")
                 return false
             end if
-
-            globals.libs.scanPort(targetIP, targetPort)
         end if
     else
         print(globals.name + ": Invalid arguments given.")
