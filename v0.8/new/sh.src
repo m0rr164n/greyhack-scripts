@@ -26,6 +26,7 @@ globals.db.names = ["exploits", "passwords"]
 // Local variables
 crypto = null
 vfile = []
+dirtyObjects = []
 
 // Local variables for active user and active object.
 local = {}
@@ -47,6 +48,21 @@ remote.router = get_router
 remote.publicip = get_router.public_ip
 remote.localip = remote.computer.local_ip
 
+current = {}
+current.user = remote.user
+current.object = remote.object
+current.computer = function
+    if typeof(current.object) == "shell" then return current.object.host_computer
+    if typeof(current.object) == "computer" then return current.object
+    return null
+end function
+current.folder = current.computer.File(current_path)
+current.router = remote.router
+current.publicip = function
+    return current.router.public_ip
+end function
+current.localip = current.computer.local_ip
+
 // Set the crypto library if it is the local machine.
 if remote.publicip == local.publicip and remote.localip == local.localip then
     // Get crypto from local system.
@@ -64,27 +80,13 @@ if interface.indexes.len != 2 then
     local = interface.local
     vfile = interface.vfile
     crypto = interface.crypto
+    dirtyObjects = interface.dirty
 end if
 
-current = {}
-current.user = remote.user
-current.object = remote.object
-current.computer = function
-    if typeof(current.object) == "shell" then return current.object.host_computer
-    if typeof(current.object) == "computer" then return current.object
-    return null
-end function
-current.folder = current.computer.File(current_path)
-current.router = remote.router
-current.publicip = function
-    return current.router.public_ip
-end function
-current.localip = current.computer.local_ip
-
 // Global library helper functions.
-globals.libs = {}
+libs = {}
 
-globals.libs["toFile"] = function(anyObject = null)
+libs["toFile"] = function(anyObject = null)
     if typeof(anyObject) == "shell" then return anyObject.host_computer.File("/")
     if typeof(anyObject) == "computer" then return anyObject.File("/")
     if typeof(anyObject) == "file" then
@@ -96,14 +98,14 @@ globals.libs["toFile"] = function(anyObject = null)
     return null
 end function
 
-globals.libs["navTo"] = function(anyObject, path = "/")
+libs["navTo"] = function(anyObject, path = "/")
     if typeof(anyObject) != "file" and typeof(anyObject) != "computer" and typeof(anyObject) != "shell" then
         return null
     end if
     if typeof(path) != "string" then return null
     if path.len == 0 then return null
     
-    object = globals.libs.toFile(anyObject)
+    object = libs.toFile(anyObject)
     if not object then return null
 
     // Trim trailing '/' character(s) from path.
@@ -140,7 +142,7 @@ globals.libs["navTo"] = function(anyObject, path = "/")
     return object
 end function
 
-globals.libs["findAll"] = function(fileObject)
+libs["findAll"] = function(fileObject)
     if typeof(fileObject) != "file" then return null
     
     newList = []
@@ -153,7 +155,7 @@ globals.libs["findAll"] = function(fileObject)
     return newList
 end function
 
-globals.libs["findAllWithRead"] = function(fileList)
+libs["findAllWithRead"] = function(fileList)
     if typeof(fileList) != "list" then return null
 
     newList = []
@@ -172,7 +174,7 @@ globals.libs["findAllWithRead"] = function(fileList)
     return newList
 end function
 
-globals.libs["findAllWithWrite"] = function(fileList)
+libs["findAllWithWrite"] = function(fileList)
     if typeof(fileList) != "list" then return null
 
     newList = []
@@ -191,7 +193,7 @@ globals.libs["findAllWithWrite"] = function(fileList)
     return newList
 end function
 
-globals.libs["findAllWithExec"] = function(fileList)
+libs["findAllWithExec"] = function(fileList)
     if typeof(fileList) != "list" then return null
 
     newList = []
@@ -210,7 +212,7 @@ globals.libs["findAllWithExec"] = function(fileList)
     return newList
 end function
 
-globals.libs["checkIP"] = function(anyObject, targetIP, targetPort, currentRouter)
+libs["checkIP"] = function(anyObject, targetIP, targetPort, currentRouter)
     if typeof(anyObject) != "shell" and typeof(anyObject) != "computer" and typeof(anyObject) != "file" then return null
     if not is_valid_ip(targetIP) then return null
     if typeof(targetPort) != "number" then return null
@@ -225,14 +227,14 @@ globals.libs["checkIP"] = function(anyObject, targetIP, targetPort, currentRoute
     return { "localip": targetRouter.local_ip, "publicip": targetIP, "router": targetRouter }
 end function
 
-globals.libs["checkUser"] = function(anyObject)
-    file = globals.libs.navTo(anyObject, "/root")
+libs["checkUser"] = function(anyObject)
+    file = libs.navTo(anyObject, "/root")
     if file != null then
         if file.has_permission("r") and file.has_permission("w") and file.has_permission("x") then
             return "root"
         end if
     end if
-    homeFolder = globals.libs.navTo(anyObject, "/home")
+    homeFolder = libs.navTo(anyObject, "/home")
     if homeFolder != null then
         for user in homeFolder.get_folders
             if user.has_permission("r") and user.has_permission("w") and user.has_permission("x") then
@@ -243,19 +245,19 @@ globals.libs["checkUser"] = function(anyObject)
     return "guest"
 end function
 
-globals.libs["encrypt"] = function(string = "")
+libs["encrypt"] = function(string = "")
     if typeof(string) != "string" then return null
     // TODO: Add your own encryption.
     return string
 end function
 
-globals.libs["decrypt"] = function(string = "")
+libs["decrypt"] = function(string = "")
     if typeof(string) != "string" then return null
     // TODO: Add your own decryption.
     return string
 end function
 
-globals.libs["dbCheck"] = function
+libs["dbCheck"] = function
     payload = local.computer.File(local.folder.path + "/" + globals.db.name)
     if not payload then return false
     globals.db.folder = payload
@@ -269,7 +271,7 @@ globals.libs["dbCheck"] = function
     return true
 end function
 
-globals.libs["dbCreate"] = function
+libs["dbCreate"] = function
     payload = local.computer.File(local.folder.path + "/" + globals.db.name)
     if not payload then
         print("<color=yellow>Creating database folder '" + globals.db.name + "'...</color>")
@@ -304,7 +306,37 @@ globals.libs["dbCreate"] = function
     return true
 end function
 
-globals.libs["dbDeleteExploits"] = function(dbName = "")
+libs["dbParseToLines"] = function(result = "")
+    if typeof(result) != "string" or result == "" then return null
+    lines = result.split(";")[:-1]
+    converted = []
+    for line in lines
+        converted.push(line)
+    end for
+    return converted
+end function
+
+libs["dbStringifyExploits"] = function(result = {})
+    if typeof(result) != "map" then return ""
+    s = ""
+    for memory in result.memorys
+        for value in memory.value
+            s = s + result.name + ":" + result.version + ":" + memory.key + ":" + value + ";"
+        end for
+    end for
+    return s
+end function
+
+libs["dbStringifyLines"] = function(result = [])
+    if typeof(result) != "list" then return ""
+    s = ""
+    for line in result
+        s = s + line + ";"
+    end for
+    return s
+end function
+
+libs["dbDelete"] = function(dbName = "")
     if dbName == "" then
         if globals.db.folder == null then return false
         globals.db.folder.delete
@@ -313,16 +345,15 @@ globals.libs["dbDeleteExploits"] = function(dbName = "")
             globals.db[dbname] = null
         end for
     else
-        if globals.db.hasIndex(dbName) == null then return false
+        if not globals.db.hasIndex(dbName) then return false
         if typeof(globals.db[dbName]) != "file" then return false
-        if globals.db[dbName] == null then return false
         globals.db[dbName].delete
         globals.db[dbName] = null
     end if
     return true
 end function
 
-globals.libs["dbParseExploits"] = function(result = "", filename = "")
+libs["dbParseExploits"] = function(result = "", filename = "")
     if typeof(result) != "string" then return null
     if typeof(filename) != "string" then return null
     if result.indexOf(";") == null then return null
@@ -347,37 +378,7 @@ globals.libs["dbParseExploits"] = function(result = "", filename = "")
     return ret
 end function
 
-globals.libs["dbParseToLines"] = function(result = "")
-    if typeof(result) != "string" or result == "" then return null
-    lines = result.split(";")[:-1]
-    converted = []
-    for line in lines
-        converted.push(line)
-    end for
-    return converted
-end function
-
-globals.libs["dbStringifyExploits"] = function(result = {})
-    if typeof(result) != "map" then return ""
-    s = ""
-    for memory in result.memorys
-        for value in memory.value
-            s = s + result.name + ":" + result.version + ":" + memory.key + ":" + value + ";"
-        end for
-    end for
-    return s
-end function
-
-globals.libs["dbStringifyLines"] = function(result = [])
-    if typeof(result) != "list" then return ""
-    s = ""
-    for line in result
-        s = s + line + ";"
-    end for
-    return s
-end function
-
-globals.libs["dbWriteExploits"] = function(result = null)
+libs["dbWriteExploits"] = function(result = null)
     if typeof(result) != "map" then return null
 
     // Get current file for writing.
@@ -390,12 +391,12 @@ globals.libs["dbWriteExploits"] = function(result = null)
     end if
 
     // Get content and check if in database.
-    content = globals.libs.decrypt(file.get_content)
-    stringify = globals.libs.dbStringifyExploits(result)
+    content = libs.decrypt(file.get_content)
+    stringify = libs.dbStringifyExploits(result)
 
     if content.len + stringify.len <= 160000 then
         // Process lines
-        lines = globals.libs.dbParseToLines(content)
+        lines = libs.dbParseToLines(content)
         for line in lines
             v = line.split(":")
             if v[0] == result.name and v[1] == result.version then
@@ -405,7 +406,7 @@ globals.libs["dbWriteExploits"] = function(result = null)
 
         // Write content to database.
         content = content + stringify
-        content = globals.libs.encrypt(content)
+        content = libs.encrypt(content)
         result = file.set_content(content)
         if typeof(result) == "string" then return false
     else
@@ -421,7 +422,7 @@ globals.libs["dbWriteExploits"] = function(result = null)
 
         // Write content to database.
         content = content + stringify
-        content = globals.libs.encrypt(content)
+        content = libs.encrypt(content)
         result = file.set_content(content)
         if typeof(result) == "string" then return false
     end if
@@ -429,14 +430,14 @@ globals.libs["dbWriteExploits"] = function(result = null)
     return true
 end function
 
-globals.libs["dbQueryExploits"] = function(libname = "", libver = "", doprint = false)
+libs["dbQueryExploits"] = function(libname = "", libver = "", doprint = false)
     if globals.db.folder == null or not globals.db.hasIndex("exploits") then return null
 
     if libname == "" then
         retrieved = []
         for file in globals.db.exploits.get_files
-            data = globals.libs.decrypt(file.get_content)
-            lines = globals.libs.dbParseToLines(data)
+            data = libs.decrypt(file.get_content)
+            lines = libs.dbParseToLines(data)
             for line in lines
                 v = line.split(":")
                 if retrieved.indexOf(v[0]) == null then
@@ -453,8 +454,8 @@ globals.libs["dbQueryExploits"] = function(libname = "", libver = "", doprint = 
             retrieved = []
             for file in globals.db.exploits.get_files
                 found = false
-                data = globals.libs.decrypt(file.get_content)
-                lines = globals.libs.dbParseToLines(data)
+                data = libs.decrypt(file.get_content)
+                lines = libs.dbParseToLines(data)
                 for line in lines
                     v = line.split(":")
                     s = v[0] + ":" + v[1]
@@ -474,8 +475,8 @@ globals.libs["dbQueryExploits"] = function(libname = "", libver = "", doprint = 
             converted = []
             for file in globals.db.exploits.get_files
                 found = false
-                data = globals.libs.decrypt(file.get_content)
-                lines = globals.libs.dbParseToLines(data)
+                data = libs.decrypt(file.get_content)
+                lines = libs.dbParseToLines(data)
                 for line in lines
                     v = line.split(":")
                     if v[0] == libname and v[1] == libver then
@@ -492,20 +493,20 @@ globals.libs["dbQueryExploits"] = function(libname = "", libver = "", doprint = 
                     print("  --> " + v[2] + " [" + v[3] + "]")
                 end for
             else
-                stringify = globals.libs.dbStringifyLines(converted)
-                return globals.libs.dbParseExploits(stringify)
+                stringify = libs.dbStringifyLines(converted)
+                return libs.dbParseExploits(stringify)
             end if
         end if
     end if
     return null
 end function
 
-globals.libs["scanLib"] = function(metalib, metax)
+libs["scanLib"] = function(metalib, metax)
     if not metalib then return null
     if not metax then return null
 
     if globals.db.folder != null and globals.db.hasIndex("exploits") then
-        ret = globals.libs.dbQueryExploits(metalib.lib_name, metalib.version)
+        ret = libs.dbQueryExploits(metalib.lib_name, metalib.version)
         if ret != null then return ret
     end if
 
@@ -527,7 +528,7 @@ globals.libs["scanLib"] = function(metalib, metax)
     end for
 
     if globals.db.folder != null and globals.db.hasIndex("exploits") then
-        if globals.libs.dbWriteExploits(ret) then
+        if libs.dbWriteExploits(ret) then
             print("<color=yellow>Library '" + ret.name + "' version " + ret.version + " added.")
         else
             print("<color=orange>Library '" + ret.name + "' version " + ret.version + " already exists.")
@@ -537,13 +538,13 @@ globals.libs["scanLib"] = function(metalib, metax)
     return ret
 end function
 
-globals.libs["dbStringifyPassword"] = function(result = {})
+libs["dbStringifyPassword"] = function(result = {})
     if typeof(result) != "map" then return ""
     s = result.pass + ":" + result.hash + ";"
     return s
 end function
 
-globals.libs["dbParsePassword"] = function(result = "")
+libs["dbParsePassword"] = function(result = "")
     if typeof(result) != "string" then return null
     if result.indexOf(":") == null then return null
 
@@ -555,7 +556,7 @@ globals.libs["dbParsePassword"] = function(result = "")
     return ret
 end function
 
-globals.libs["dbWritePasswords"] = function(result = "")
+libs["dbWritePasswords"] = function(result = "")
     if typeof(result) != "string" then return false
 
     // Get current file.
@@ -568,11 +569,11 @@ globals.libs["dbWritePasswords"] = function(result = "")
     end if
     
     // Get content and check if in database.
-    content = globals.libs.decrypt(file.get_content)
-    stringify = globals.libs.dbStringifyPassword({ "pass": result, "hash": md5(result) })
+    content = libs.decrypt(file.get_content)
+    stringify = libs.dbStringifyPassword({ "pass": result, "hash": md5(result) })
     
     if content.len + stringify.len <= 160000 then
-        lines = globals.libs.dbParseToLines(content)
+        lines = libs.dbParseToLines(content)
         for line in lines
             v = line.split(":")
             if v[0] == result then
@@ -582,7 +583,7 @@ globals.libs["dbWritePasswords"] = function(result = "")
 
         // Write content to database.
         content = content + stringify
-        content = globals.libs.encrypt(content)
+        content = libs.encrypt(content)
         result = file.set_content(content)
         if typeof(result) == "string" then return false
     else
@@ -596,10 +597,10 @@ globals.libs["dbWritePasswords"] = function(result = "")
         end if
 
         // Get content and check if in database.
-        content = globals.libs.decrypt(file.get_content)
-        stringify = globals.libs.dbStringifyPassword({ "pass": result, "hash": md5(result) })
+        content = libs.decrypt(file.get_content)
+        stringify = libs.dbStringifyPassword({ "pass": result, "hash": md5(result) })
         
-        lines = globals.libs.dbParseToLines(content)
+        lines = libs.dbParseToLines(content)
         for line in lines
             v = line.split(":")
             if v[0] == result then
@@ -609,7 +610,7 @@ globals.libs["dbWritePasswords"] = function(result = "")
 
         // Write content to database.
         content = content + stringify
-        content = globals.libs.encrypt(content)
+        content = libs.encrypt(content)
         result = file.set_content(content)
         if typeof(result) == "string" then return false
     end if
@@ -617,13 +618,13 @@ globals.libs["dbWritePasswords"] = function(result = "")
     return true
 end function
 
-globals.libs["dbQueryPasswords"] = function(phash = "")
+libs["dbQueryPasswords"] = function(phash = "")
     if typeof(phash) != "string" then return null
 
     if phash == "" then
         for file in globals.db.passwords.get_files
-            content = globals.libs.decrypt(file.get_content)
-            lines = globals.libs.dbParseToLines(content)
+            content = libs.decrypt(file.get_content)
+            lines = libs.dbParseToLines(content)
             for line in lines
                 v = line.split(":")
                 print(v[0] + " [" + v[1] + "]")
@@ -635,8 +636,8 @@ globals.libs["dbQueryPasswords"] = function(phash = "")
         m["hash"] = ""
         for file in globals.db.passwords.get_files
             found = false
-            content = globals.libs.decrypt(file.get_content)
-            lines = globals.libs.dbParseToLines(content)
+            content = libs.decrypt(file.get_content)
+            lines = libs.dbParseToLines(content)
             for line in lines
                 v = line.split(":")
                 if v[1] == phash then
@@ -656,7 +657,7 @@ globals.libs["dbQueryPasswords"] = function(phash = "")
     return null
 end function
 
-globals.libs["getPorts"] = function(ip)
+libs["getPorts"] = function(ip)
     ret = {}
     ret.targetIP = null
     ret.router = null
@@ -684,7 +685,7 @@ globals.libs["getPorts"] = function(ip)
     return ret
 end function
 
-globals.libs["getRandomIP"] = function()
+libs["getRandomIP"] = function()
     parts = []
     maxTries = 100
     while maxTries > 0
@@ -699,7 +700,7 @@ globals.libs["getRandomIP"] = function()
     return null
 end function
 
-globals.libs["scanPort"] = function(metaxploit, targetIP, targetPort)
+libs["scanPort"] = function(metaxploit, targetIP, targetPort)
     if typeof(metaxploit) != "MetaxploitLib" then return null
     if not is_valid_ip(targetIP) then return null
     if typeof(targetPort) != "number" then return null
@@ -716,7 +717,406 @@ globals.libs["scanPort"] = function(metaxploit, targetIP, targetPort)
         return null
     end if
 
-    return globals.libs.scanLib(metalib, metaxploit)
+    return libs.scanLib(metalib, metaxploit)
+end function
+
+libs["remoteHack"] = function(targetIP, targetPort, injectArg = "")
+    if typeof(targetIP) != "string" then return []
+    if typeof(targetPort) != "number" then return []
+    if typeof(injectArg) != "string" then return []
+    if not is_valid_ip(targetIP) then return []
+
+    // Load metaxploit.so into memory.
+    metaxploit = include_lib("/lib/metaxploit.so")
+    if not metaxploit then metaxploit = include_lib(parent_path(program_path) + "/metaxploit.so")
+    if not metaxploit then metaxploit = include_lib(parent_path(program_path) + "/payload/metaxploit.so")
+    if not metaxploit then
+        print(globals.name + ": Cannot find metaxploit.so!")
+        return []
+    end if
+    
+    netsession = metaxploit.net_use(targetIP, targetPort)
+    if not netsession then return []
+    metalib = netsession.dump_lib
+    if not metalib then return []
+    exploits = libs.scanLib(metalib, metaxploit)
+    if not exploits then return []
+
+    objects = []
+    for exploit in exploits.memorys
+        print("<color=#FF0000>" + exploit.key + "</color>")
+        for value in exploit.value
+            print(char(9) + "<color=#FFFF00>" + value + "</color>")
+            object = metalib.overflow(exploit.key, value, injectArg)
+            if typeof(object) != "shell" and typeof(object) != "computer" and typeof(object) != "file" then continue
+            compinfo = libs.checkIP(object, targetIP, targetPort, get_router)
+            if not compinfo then continue
+            if objects.indexOf(object) == null then
+                objects.push({"object": object, "user": libs.checkUser(object), "addr": exploit.key, "vuln": value, "localip": compinfo.localip, "publicip": compinfo.publicip, "router": compinfo.router })
+            end if
+        end for
+    end for
+    
+    return objects
+end function
+
+libs["localHack"] = function(libName = "", injectArg = "")
+    if typeof(libName) != "string" then return []
+    if typeof(injectArg) != "string" then return []
+
+    // Load metaxploit.so into memory.
+    metaxploit = include_lib("/lib/metaxploit.so")
+    if not metaxploit then metaxploit = include_lib(parent_path(program_path) + "/metaxploit.so")
+    if not metaxploit then metaxploit = include_lib(parent_path(program_path) + "/payload/metaxploit.so")
+    if not metaxploit then
+        print(globals.name + ": Cannot find metaxploit.so!")
+        return []
+    end if
+
+    metalib = metaxploit.load(libName)
+    if not metalib then return []
+    exploits = libs.scanLib(metalib, metaxploit)
+    if not exploits then return []
+
+    objects = []
+    for exploit in exploits.memorys
+        print("<color=#FF0000>" + exploit.key + "</color>")
+        for value in exploit.value
+            print(char(9) + "<color=#FFFF00>" + value + "</color>")
+            object = metalib.overflow(exploit.key, value, injectArg)
+            if typeof(object) != "shell" and typeof(object) != "computer" and typeof(object) != "file" then continue
+            localIP = current.localip
+            if typeof(object) == "shell" then localIP = object.host_computer.local_ip
+            if typeof(object) == "computer" then localIP = object.local_ip
+            if objects.indexOf(object) == null then
+                objects.push({"object": object, "user": libs.checkUser(object), "addr": exploit.key, "vuln": value, "localip": localIP, "publicip": current.publicip, "router": current.router })
+            end if
+        end for
+    end for
+
+    return objects
+end function
+
+libs["wipeLog"] = function(object)
+    if typeof(object) != "shell" and typeof(object) != "computer" and typeof(object) != "file" then return false
+
+    allFiles = libs.findAll(libs.toFile(object))
+    if not allFiles then return false
+    if allFiles.len == 0 then return false
+
+    files = libs.findAllWithWrite(allFiles)
+    if not files then return false
+    if files.len == 0 then return false
+
+    file = null
+    for f in files
+        if f.type == "text" then
+            file = f.file
+            break
+        end if
+    end for
+    if not file then return false
+
+    result = file.copy("/var", "system.log")
+    if typeof(result) == "string" then return false
+    file = libs.navTo(object, "/var/system.log")
+    if not file then
+        print(globals.name + ": <color=orange>Failed to wipe log.</color>")
+        return false
+    end if
+    file.set_content("")
+    print(globals.name + ": <color=green>Log cleaned!</color>")
+    return true
+end function
+
+libs["wipeTool"] = function(object, path = "")
+    if typeof(object) != "shell" and typeof(object) != "computer" and typeof(object) != "file" then return false
+    if typeof(path) != "string" then return false
+
+    filenames = ["payload", "crypto.so", "metaxploit.so", "ScanLan.exe", program_path.split("/")[-1]]
+    for filename in filenames
+        fileobj = libs.navTo(object, path + "/" + filename)
+        if not fileobj then continue
+        result = fileobj.delete
+        if result == 0 then
+            print(globals.name + ": Could not delete '" + filename + "'.")
+        else
+            print(globals.name + ": File '" + filename + "' wiped.")
+        end if
+    end for
+
+    return true
+end function
+
+// ------------------ Special Functions ------------------
+
+elevateToRoot = function(dirty, rootHash)
+    if typeof(dirty) != "map" then return null
+    if typeof(rootHash) != "string" then return null
+
+    // Query database and return if found.
+    if globals.db.folder != null and globals.db.hasIndex("passwords") then
+        if rootHash != "" then
+            m = libs.dbQueryPasswords(rootHash)
+            if typeof(m) != "map" then
+                // Run decipher on hash.
+                print(globals.name + ": <color=yellow>Cracking <b>root</b> hash...</color>")
+                password = crypto.decipher(rootHash)
+                if not password then
+                    print(globals.name + ": <color=red>Cannot decipher password hash.</color>")
+                    return null
+                end if
+
+                // Write to password database.
+                if libs.dbWritePasswords(password) then
+                    print(globals.name + ": <color=orange>Password added.</color>")
+                    m = {}
+                    m["pass"] = password
+                    m["hash"] = rootHash
+                else
+                    print(globals.name + ": <color=white>Password already exists.</color>")
+                end if
+            else
+                print(globals.name + ": <color=yellow>Password found, elevating to root...</color>")
+            end if
+        else
+            print(globals.name + ": <color=yellow>Root hash not found...</color>")
+            return null
+        end if
+    end if
+
+    payload = "if params.len != 1 then exit(""payload: [password]"")" + char(10)
+    payload = payload + "shell = get_shell(""root"", params[0])" + char(10)
+    payload = payload + "if not shell then exit(""payload: Could not elevate to root."")" + char(10)
+    payload = payload + "interface = get_custom_object" + char(10)
+    payload = payload + "interface.shell = shell" + char(10)
+
+    // Create payload source and build.
+    path = dirty.folder.path
+    srcfile = dirty.object.host_computer.File(path + "/a.src")
+    if not srcfile then
+        dirty.object.host_computer.touch(path, "a.src")
+        srcfile = dirty.object.host_computer.File(path + "/a.src")
+    end if
+    if not srcfile then return false
+    srcfile.set_content(payload)
+    dirty.object.build(path + "/a.src", path)
+    srcfile.delete
+    binfile = dirty.object.host_computer.File(path + "/a")
+    if not binfile then return false
+
+    // Launch the binary file.
+    interface = get_custom_object
+    interface.shell = null
+    dirty.object.launch(path + "/a", m.pass)
+    binfile.delete
+    return interface.shell
+end function
+
+localElevateFromUser = function(dirty)
+    payload = "if params.len != 0 then exit(""payload: No arguments needed."")" + char(10)
+    payload = payload + "interface = get_custom_object" + char(10)
+    payload = payload + "globals.db = interface.db" + char(10)
+    payload = payload + "libs = interface.libs" + char(10)
+    payload = payload + "" + char(10)
+    payload = payload + "libFolder = get_shell.host_computer.File(""/lib"")" + char(10)
+    payload = payload + "if not libFolder then exit(""payload: No lib folder"")" + char(10)
+    payload = payload + "libfiles = libFolder.get_files" + char(10)
+    payload = payload + "if libfiles.len == 0 then exit(""payload: No lib files"")" + char(10)
+    payload = payload + "" + char(10)
+    payload = payload + "found = false" + char(10)
+    payload = payload + "for libfile in libfiles" + char(10)
+    payload = payload + "objs = libs.localHack(libfile.path, """")" + char(10)
+    payload = payload + "for obj in objs" + char(10)
+    payload = payload + "if obj.user == ""guest"" then continue" + char(10)
+    payload = payload + "interface.objects.push(obj)" + char(10)
+    payload = payload + "found = true" + char(10)
+    payload = payload + "break" + char(10)
+    payload = payload + "end for" + char(10)
+    payload = payload + "if found then break" + char(10)
+    payload = payload + "end for" + char(10)
+    
+    // Upload metaxploit.so to remote machine.
+    path = dirty.folder.path
+    folders = ["/lib", "/bin", "/usr/bin", parent_path(program_path), local.folder.path]
+    filenames = ["payload", "metaxploit.so", "crypto.so"]
+    for filename in filenames
+        for folder in folders
+            file = local.object.host_computer.File(folder + "/" + filename)
+            if not file then continue
+            local.object.scp(file.path, path, dirty.object)
+        end for
+    end for
+
+    // Create the source file.
+    srcfile = dirty.object.host_computer.File(path + "/a.src")
+    if not srcfile then
+        dirty.object.host_computer.touch(path, "a.src")
+        srcfile = dirty.object.host_computer.File(path + "/a.src")
+    end if
+    if not srcfile then return false
+    srcfile.set_content(payload)
+
+    // Build the source file.
+    interface = get_custom_object
+    interface.db = globals.db
+    interface.libs = libs
+    interface.objects = []
+    dirty.object.build(path + "/a.src", path)
+    srcfile.delete
+    binfile = dirty.object.host_computer.File(path + "/a")
+    if not binfile then return false
+
+    // Launch the binary file.
+    dirty.object.launch(path + "/a", "")
+    objects = interface.objects
+    binfile.delete
+
+    // Cleanup
+    libs.wipeTool(dirty.object, path)
+
+    // Loop through objects and check for password.
+    if objects.len > 0 then
+        rootHash = ""
+        for object in objects
+            if object.user == "guest" then continue
+            print("Public IP: " + object.publicip + char(10) + "Local IP: " + object.localip)
+            file = libs.navTo(object.object, "/etc/passwd")
+            if not file then continue
+            if not file.has_permission("r") then
+                print(globals.name + ": Permission denied.")
+                continue
+            end if
+            content = file.get_content
+            if content.len < 32 then continue
+            rootHash = content[content.indexOf("root:")+5:37]
+            break
+        end for
+
+        // Elevate to root if root hash found.
+        shell = elevateToRoot(dirty, rootHash)
+        if shell != null then
+            // Cleanup of dirty object.
+            libs.wipeLog(shell)
+        end if
+    end if
+
+    return true
+end function
+
+localBounce = function(dirty)
+    payload = "if params.len != 0 then exit(""payload: No arguments needed."")" + char(10)
+    payload = payload + "interface = get_custom_object" + char(10)
+    payload = payload + "globals.db = interface.db" + char(10)
+    payload = payload + "libs = interface.libs" + char(10)
+    payload = payload + "" + char(10)
+    payload = payload + "libFolder = get_shell.host_computer.File(""/lib"")" + char(10)
+    payload = payload + "if not libFolder then exit(""payload: No lib folder"")" + char(10)
+    payload = payload + "libfiles = libFolder.get_files" + char(10)
+    payload = payload + "if libfiles.len == 0 then exit(""payload: No lib files"")" + char(10)
+    payload = payload + "" + char(10)
+    payload = payload + "found = false" + char(10)
+    payload = payload + "for libfile in libfiles" + char(10)
+    payload = payload + "objs = libs.localHack(libfile.path, """")" + char(10)
+    payload = payload + "for obj in objs" + char(10)
+    payload = payload + "if obj.user == ""guest"" then continue" + char(10)
+    payload = payload + "interface.objects.push(obj)" + char(10)
+    payload = payload + "found = true" + char(10)
+    payload = payload + "break" + char(10)
+    payload = payload + "end for" + char(10)
+    payload = payload + "if found then break" + char(10)
+    payload = payload + "end for" + char(10)
+    payload = payload + "if found then exit(""payload: Got root hash!"")" + char(10)
+    payload = payload + "" + char(10)
+    payload = payload + "routers = []" + char(10)
+    payload = payload + "devices = get_router.devices_lan_ip" + char(10)
+    payload = payload + "for lanip in devices" + char(10)
+    payload = payload + "if get_router(lanip) != null or get_switch(lanip) != null then" + char(10)
+    payload = payload + "if routers.indexOf(lanip) == null then routers = routers + get_router(lanip).devices_lan_ip" + char(10)
+    payload = payload + "end if" + char(10)
+    payload = payload + "end for" + char(10)
+    payload = payload + "" + char(10)
+    payload = payload + "found = false" + char(10)
+    payload = payload + "for lanip in routers" + char(10)
+    payload = payload + "for libfile in libfiles" + char(10)
+    payload = payload + "objs = libs.localHack(libfile.path, lanip)" + char(10)
+    payload = payload + "for obj in objs" + char(10)
+    payload = payload + "if obj.user == ""guest"" then continue" + char(10)
+    payload = payload + "interface.objects.push(obj)" + char(10)
+    payload = payload + "found = true" + char(10)
+    payload = payload + "break" + char(10)
+    payload = payload + "end for" + char(10)
+    payload = payload + "if found then break" + char(10)
+    payload = payload + "end for" + char(10)
+    payload = payload + "if found then break" + char(10)
+    payload = payload + "end for" + char(10)
+
+    // Upload metaxploit.so to remote machine.
+    path = dirty.folder.path
+    folders = ["/lib", "/bin", "/usr/bin", parent_path(program_path), local.folder.path]
+    filenames = ["payload", "metaxploit.so", "crypto.so"]
+    for filename in filenames
+        for folder in folders
+            file = local.object.host_computer.File(folder + "/" + filename)
+            if not file then continue
+            local.object.scp(file.path, path, dirty.object)
+        end for
+    end for
+
+    // Create the source file.
+    srcfile = dirty.object.host_computer.File(path + "/a.src")
+    if not srcfile then
+        dirty.object.host_computer.touch(path, "a.src")
+        srcfile = dirty.object.host_computer.File(path + "/a.src")
+    end if
+    if not srcfile then return false
+    srcfile.set_content(payload)
+
+    // Build the source file.
+    interface = get_custom_object
+    interface.db = globals.db
+    interface.libs = libs
+    interface.objects = []
+    dirty.object.build(path + "/a.src", path)
+    srcfile.delete
+    binfile = dirty.object.host_computer.File(path + "/a")
+    if not binfile then return false
+
+    // Launch the binary file.
+    dirty.object.launch(path + "/a", "")
+    objects = interface.objects
+    binfile.delete
+
+    // Cleanup
+    libs.wipeTool(dirty.object, path)
+
+    // Loop through objects and check for password.
+    if objects.len > 0 then
+        rootHash = ""
+        for object in objects
+            if object.user == "guest" then continue
+            print("Public IP: " + object.publicip + char(10) + "Local IP: " + object.localip)
+            file = libs.navTo(object.object, "/etc/passwd")
+            if not file then continue
+            if not file.has_permission("r") then
+                print(globals.name + ": Permission denied.")
+                continue
+            end if
+            content = file.get_content
+            if content.len < 32 then continue
+            rootHash = content[content.indexOf("root:")+5:37]
+            break
+        end for
+
+        // Elevate to root if root hash found.
+        shell = elevateToRoot(dirty, rootHash)
+        if shell != null then
+            // Cleanup of dirty object.
+            libs.wipeLog(shell)
+        end if
+    end if
+
+    return true
 end function
 
 // ------------------- Shell Commands --------------------
@@ -765,6 +1165,7 @@ globals.commandsShell["shell"]["run"] = function(argv = [])
 
     if typeof(current.object) == "shell" then
         current.object.start_terminal
+        globals.running = false
     else
         print(globals.name + ": You are NOT in a shell.")
     end if
@@ -782,11 +1183,11 @@ globals.commandsShell["elevate"]["run"] = function(argv = [])
     payload = payload + "interface = get_custom_object" + char(10)
     payload = payload + "interface.shell = shell" + char(10)
     current.object.host_computer.touch(current.folder.path, "a.src")
-    srcfile = globals.libs.navTo(current.object, current.folder.path + "/a.src")
+    srcfile = libs.navTo(current.object, current.folder.path + "/a.src")
     if not srcfile then return print(globals.name + ": Could not create source for elevating.")
     srcfile.set_content(payload)
     current.object.build(current.folder.path + "/a.src", current.folder.path, 0)
-    binfile = globals.libs.navTo(current.object, current.folder.path + "/a")
+    binfile = libs.navTo(current.object, current.folder.path + "/a")
     if not binfile then
         srcfile.delete
         return false
@@ -799,7 +1200,7 @@ globals.commandsShell["elevate"]["run"] = function(argv = [])
             localIP = current.localip
             if typeof(interface.shell) == "shell" then localIP = interface.shell.host_computer.local_ip
             if typeof(interface.shell) == "computer" then localIP = interface.shell.local_ip
-            shell = {"object": interface.shell, "user": globals.libs.checkUser(interface.shell), "addr": "", "vuln": "", "localip": localIP, "publicip": current.publicip, "router": current.router }
+            shell = {"object": interface.shell, "user": libs.checkUser(interface.shell), "addr": "", "vuln": "", "localip": localIP, "publicip": current.publicip, "router": current.router }
             current.user = shell.user
             current.object = shell.object
             current.computer = function
@@ -809,14 +1210,14 @@ globals.commandsShell["elevate"]["run"] = function(argv = [])
             end function
             current.folder = function
                 if shell.user == "root" then
-                    return globals.libs.navTo(shell.object, "/root")
+                    return libs.navTo(shell.object, "/root")
                 else
-                    file = globals.libs.navTo(shell.object, "/home/" + shell.user)
+                    file = libs.navTo(shell.object, "/home/" + shell.user)
                     if file != null then
-                        return globals.libs.navTo(shell.object, file.path)
+                        return libs.navTo(shell.object, file.path)
                     end if
                 end if
-                return globals.libs.toFile(shell.object)
+                return libs.toFile(shell.object)
             end function
             current.router = shell.router
             current.publicip = shell.publicip
@@ -839,7 +1240,7 @@ globals.commandsShell["upload"]["run"] = function(argv = [])
     files = ["payload", "crypto.so", "metaxploit.so", "sh"]
     for file in files
         for folder in folders
-            fileobj = globals.libs.navTo(local.object, folder + "/" + file)
+            fileobj = libs.navTo(local.object, folder + "/" + file)
             if not fileobj then continue
             result = local.object.scp(fileobj.path, current.folder.path, current.object)
             if typeof(result) == "string" then print(globals.name + ": Could not upload file " + fileobj.name)
@@ -863,6 +1264,7 @@ globals.commandsShell["upload"]["run"] = function(argv = [])
     interface.local.localip = local.computer.local_ip
     interface.vfile = vfile
     interface.crypto = crypto
+    interface.dirty = dirtyObjects
     result = current.object.launch(current.folder.path + "/sh", "")
     if typeof(result) == "string" then return print(globals.name + ": Could not launch shell.")
     return true
@@ -1046,9 +1448,9 @@ globals.commands["ls"]["run"] = function(argv = [])
         info = "PERM OWNER GROUP NAME"
         folder = null
         if argv[1].indexOf("/") == 0 then
-            folder = globals.libs.navTo(current.object, argv[1])
+            folder = libs.navTo(current.object, argv[1])
         else
-            folder = globals.libs.navTo(current.object, current.folder.path + "/" + argv[1])
+            folder = libs.navTo(current.object, current.folder.path + "/" + argv[1])
         end if
         if not folder then
             print(globals.name + ": Not found.")
@@ -1072,9 +1474,9 @@ globals.commands["cd"]["run"] = function(argv = [])
     if argv.len == 1 then
         file = null
         if current.user == "root" then
-            file = globals.libs.navTo(current.object, "/root")
+            file = libs.navTo(current.object, "/root")
         else
-            file = globals.libs.navTo(current.object, "/home/" + current.user)
+            file = libs.navTo(current.object, "/home/" + current.user)
         end if
         if not file then
             print(globals.name + ": Not found.")
@@ -1093,9 +1495,9 @@ globals.commands["cd"]["run"] = function(argv = [])
         else
             file = null
             if argv[1].indexOf("/") == 0 then
-                file = globals.libs.navTo(current.object, argv[1])
+                file = libs.navTo(current.object, argv[1])
             else
-                file = globals.libs.navTo(current.object, current.folder.path + "/" + argv[1])
+                file = libs.navTo(current.object, current.folder.path + "/" + argv[1])
             end if
             if not file then
                 print(globals.name + ": Not found.")
@@ -1129,9 +1531,9 @@ globals.commands["rm"]["run"] = function(argv = [])
     if argv.len == 2 then
         file = null
         if argv[1].indexOf("/") != 0 then
-            file = globals.libs.navTo(current.object, current.folder.path + "/" + argv[1])
+            file = libs.navTo(current.object, current.folder.path + "/" + argv[1])
         else
-            file = globals.libs.navTo(current.object, argv[1])
+            file = libs.navTo(current.object, argv[1])
         end if
         if not file then
             print(globals.name + ": Not found.")
@@ -1163,9 +1565,9 @@ globals.commands["cat"]["run"] = function(argv = [])
 
     file = null
     if argv[1].indexOf("/") != 0 then
-        file = globals.libs.navTo(current.object, current.folder.path + "/" + argv[1])
+        file = libs.navTo(current.object, current.folder.path + "/" + argv[1])
     else
-        file = globals.libs.navTo(current.object, argv[1])
+        file = libs.navTo(current.object, argv[1])
     end if
     if not file then
         print(globals.name + ": Not found.")
@@ -1203,13 +1605,13 @@ globals.commands["touch"]["run"] = function(argv = [])
             end if
         end if
         object.touch(path, filename)
-        file = globals.libs.navTo(current.object, path + "/" + filename)
+        file = libs.navTo(current.object, path + "/" + filename)
     else
-        allFiles = globals.libs.findAll(globals.libs.toFile(current.object))
+        allFiles = libs.findAll(libs.toFile(current.object))
         if not allFiles then return print(globals.name + ": Not a file object.")
         if allFiles.len == 0 then return print(globals.name + ": No files in root folder.")
 
-        files = globals.libs.findAllWithWrite(allFiles)
+        files = libs.findAllWithWrite(allFiles)
         if not files then return print(globals.name + ": Not a list of maps.")
         if files.len == 0 then return print(globals.name + ": Cannot find any files.")
 
@@ -1236,7 +1638,7 @@ globals.commands["touch"]["run"] = function(argv = [])
             end if
         end if
         result = file.copy(path, filename)
-        file = globals.libs.navTo(current.object, path + "/" + filename)
+        file = libs.navTo(current.object, path + "/" + filename)
     end if
     if not file then
         print(globals.name + ": File not created.")
@@ -1277,17 +1679,17 @@ globals.commands["mkdir"]["run"] = function(argv = [])
         end if
 
         object.create_folder(path, filename)
-        file = globals.libs.navTo(current.object, path + "/" + filename)
+        file = libs.navTo(current.object, path + "/" + filename)
         if not file then
             print(globals.name + ": Directory not created.")
             return false
         end if
     else
-        allFiles = globals.libs.findAll(globals.libs.toFile(current.object))
+        allFiles = libs.findAll(libs.toFile(current.object))
         if not allFiles then return print(globals.name + ": Not a file object.")
         if allFiles.len == 0 then return print(globals.name + ": No files in root folder.")
 
-        files = globals.libs.findAllWithWrite(allFiles)
+        files = libs.findAllWithWrite(allFiles)
         if not files then return print(globals.name + ": Not a list of maps.")
         if files.len == 0 then return print(globals.name + ": Cannot find any files.")
 
@@ -1315,7 +1717,7 @@ globals.commands["mkdir"]["run"] = function(argv = [])
             end if
         end if
         file.copy(path, filename)
-        file = globals.libs.navTo(current.object, path + "/" + filename)
+        file = libs.navTo(current.object, path + "/" + filename)
         if not file then
             print(globals.name + ": Directory not created.")
             return false
@@ -1343,9 +1745,9 @@ globals.commands["rmdir"]["run"] = function(argv = [])
 
     file = null
     if argv[1].indexOf("/") == 0 then
-        file = globals.libs.navTo(current.object, argv[1])
+        file = libs.navTo(current.object, argv[1])
     else
-        file = globals.libs.navTo(current.object, current.folder.path + "/" + argv[1])
+        file = libs.navTo(current.object, current.folder.path + "/" + argv[1])
     end if
     if not file then return print(globals.name + ": Directory not found.")
     if not file.is_folder then return print(globals.name + ": Not a directory.")
@@ -1365,9 +1767,9 @@ globals.commands["chmod"]["run"] = function(argv = [])
 
     file = null
     if argv[-1].indexOf("/") == 0 then
-        file = globals.libs.navTo(current.object, argv[-1])
+        file = libs.navTo(current.object, argv[-1])
     else
-        file = globals.libs.navTo(current.object, current.folder.path + "/" + argv[-1])
+        file = libs.navTo(current.object, current.folder.path + "/" + argv[-1])
     end if
     if not file then
         print(globals.name + ": File or directory not found.")
@@ -1394,9 +1796,9 @@ globals.commands["chown"]["run"] = function(argv = [])
 
     file = null
     if argv[-1].indexOf("/") == 0 then
-        file = globals.libs.navTo(current.object, argv[-1])
+        file = libs.navTo(current.object, argv[-1])
     else
-        file = globals.libs.navTo(current.object, current.folder.path + "/" + argv[-1])
+        file = libs.navTo(current.object, current.folder.path + "/" + argv[-1])
     end if
     if not file then
         print(globals.name + ": File or directory not found.")
@@ -1475,7 +1877,7 @@ globals.commands["ssh"]["run"] = function(argv = [])
         return false
     end if
 
-    globals.objects.push({"object": object, "user": globals.libs.checkUser(object), "addr": "ssh", "vuln": "ssh", "localip": object.host_computer.local_ip, "publicip": object.host_computer.public_ip, "router": get_router(object.host_computer.public_ip) })
+    globals.objects.push({"object": object, "user": libs.checkUser(object), "addr": "ssh", "vuln": "ssh", "localip": object.host_computer.local_ip, "publicip": object.host_computer.public_ip, "router": get_router(object.host_computer.public_ip) })
     print("<color=white>Please use <b>objects</b> command to use this object.</color>")
     return true
 end function
@@ -1546,7 +1948,7 @@ globals.commands["scan"]["run"] = function(argv = [])
     if argv.len < 2 or argv.len > 3 then return print(globals.name + ": Invalid arguments given.")
 
     if argv.len == 2 then
-        ret = globals.libs.getPorts(argv[1])
+        ret = libs.getPorts(argv[1])
         if not ret then return print(globals.name + ": Network address not found.")
         if ret.ports.len == 0 then return print(globals.name + ": Scan finished. No ports found.")
 
@@ -1569,17 +1971,17 @@ globals.commands["scan"]["run"] = function(argv = [])
 
         if argv[2] == "all" then
             if globals.db.folder == null or globals.hasIndex("exploits") then return print(globals.name + ": Not connected to database.")
-            ret = globals.libs.getPorts(argv[1])
+            ret = libs.getPorts(argv[1])
             if not ret then return print(globals.name + ": Network address not found.")
             if ret.ports.len == 0 then return print(globals.name + ": Scan finished. No ports found.")
 
-            globals.libs.scanPort(metaxploit, ret.targetIP, 0)
+            libs.scanPort(metaxploit, ret.targetIP, 0)
             for port in ret.ports
                 if not is_lan_ip(ret.targetIP) and port.is_closed then
                     continue
                 end if
 
-                globals.libs.scanPort(metaxploit, ret.targetIP, port.port_number)
+                libs.scanPort(metaxploit, ret.targetIP, port.port_number)
             end for
         else
             targetPort = argv[2].to_int
@@ -1592,7 +1994,7 @@ globals.commands["scan"]["run"] = function(argv = [])
                     return false
                 end if
 
-                globals.libs.scanPort(metaxploit, targetIP, targetPort)
+                libs.scanPort(metaxploit, targetIP, targetPort)
             else
                 print(globals.name + ": Port given was not a number.")
                 return false
@@ -1639,7 +2041,7 @@ globals.commands["rshell"]["run"] = function(argv = [])
 
         for object in rshells
             if not globals.objects.hasIndex(object) then
-                globals.objects.push({"object": object, "user": globals.libs.checkUser(object), "addr": "rshell", "vuln": "rshell", "localip": object.host_computer.local_ip, "publicip": object.host_computer.public_ip, "router": get_router(object.host_computer.public_ip) })
+                globals.objects.push({"object": object, "user": libs.checkUser(object), "addr": "rshell", "vuln": "rshell", "localip": object.host_computer.local_ip, "publicip": object.host_computer.public_ip, "router": get_router(object.host_computer.public_ip) })
             end if
         end for
 
@@ -1688,48 +2090,52 @@ globals.commands["rhack"]["run"] = function(argv = [])
     if typeof(argv) != "list" then return print(globals.name + ": Invalid argument vector given.")
     if argv.len < 3 or argv.len > 4 then return print(globals.name + ": Invalid arguments given.")
 
-    // Load metaxploit.so into memory.
-    metaxploit = include_lib("/lib/metaxploit.so")
-    if not metaxploit then metaxploit = include_lib(parent_path(program_path) + "/metaxploit.so")
-    if not metaxploit then return print(globals.name + ": Cannot find metaxploit.so!")
-
     targetIP = argv[1]
     if not is_valid_ip(targetIP) then targetIP = nslookup(targetIP)
-    if not is_valid_ip(targetIP) then return print(globals.name + ": Target IP not valid.")
+    if not is_valid_ip(targetIP) then
+        print(globals.name + ": Target IP not valid.")
+        return false
+    end if
 
     injectArg = ""
-    targetPort = argv[2].to_int
-    if typeof(targetPort) != "number" then return print(globals.name + ": Target Port is not a number.")
     if argv.len > 3 then injectArg = argv[3]
 
-    netsession = metaxploit.net_use(targetIP, targetPort)
-    if not netsession then return print(globals.name + ": Cannot connect to net session.")
-    metalib = netsession.dump_lib
-    if not metalib then return print(globals.name + ": Cannot dump library.")
-    exploits = globals.libs.scanLib(metalib, metaxploit)
-    if not exploits then
+    targetPort = argv[2].to_int
+    if typeof(targetPort) != "number" then
+        print(globals.name + ": Target Port is not a number.")
+        return false
+    end if
+    if targetPort < 0 or targetPort > 65535 then
+        print(globals.name + ": Target port is out of range.")
+        return false
+    end if
+
+    objects = libs.remoteHack(targetIP, targetPort, injectArg)
+    if objects.len == 0 then
         print(globals.name + ": No exploits found.")
         return false
     end if
 
-    objects = []
-    for exploit in exploits.memorys
-        print("<color=#FF0000>" + exploit.key + "</color>")
-        for value in exploit.value
-            print(char(9) + "<color=#FFFF00>" + value + "</color>")
-            object = metalib.overflow(exploit.key, value, injectArg)
-            if typeof(object) != "shell" and typeof(object) != "computer" and typeof(object) != "file" then continue
-            compinfo = globals.libs.checkIP(object, targetIP, targetPort, get_router)
-            if not compinfo then continue
-            if not globals.objects.hasIndex(object) then
-                objects.push({"object": object, "user": globals.libs.checkUser(object), "addr": exploit.key, "vuln": value, "localip": compinfo.localip, "publicip": compinfo.publicip, "router": compinfo.router })
-            end if
-        end for
-    end for
-
     if objects.len > 0 then
         for object in objects
-            globals.objects.push(object)
+            dirty = {}
+            dirty.user = object.user
+            dirty.object = object.object
+            dirty.computer = object.object
+            if not dirty.computer and typeof(object.object) == "shell" then dirty.computer = object.object.host_computer
+            if not dirty.computer and typeof(object.object) == "file" then dirty.computer = null
+            dirty.folder = libs.navTo(object.object, "/home/" + object.user)
+            if dirty.user == "root" then dirty.folder = libs.navTo(object.object, "/root")
+            if not dirty.folder then dirty.folder = libs.navTo(object.object, "/")
+            dirty.router = object.router
+            dirty.publicip = object.publicip
+            dirty.localip = object.localip
+            if dirtyObjects.indexOf(dirty) == null then
+                dirtyObjects.push(dirty)
+            end if
+            if globals.objects.indexOf(dirty) == null then
+                globals.objects.push(dirty)
+            end if
         end for
         print("<color=white>Please use <b>objects</b> command to switch to remote machine.</color>")
     end if
@@ -1741,41 +2147,35 @@ globals.commands["lhack"]["run"] = function(argv = [])
     if typeof(argv) != "list" then return print(globals.name + ": Invalid argument vector given.")
     if argv.len < 2 or argv.len > 3 then return print(globals.name + ": Invalid arguments given.")
 
-    // Load metaxploit.so into memory.
-    metaxploit = include_lib("/lib/metaxploit.so")
-    if not metaxploit then metaxploit = include_lib(parent_path(program_path) + "/metaxploit.so")
-    if not metaxploit then return print(globals.name + ": Cannot find metaxploit.so!")
-
     injectArg = ""
     if argv.len > 2 then injectArg = argv[2]
 
-    metalib = metaxploit.load(argv[1])
-    if not metalib then return print(globals.name + ": Cannot dump library.")
-    exploits = globals.libs.scanLib(metalib, metaxploit)
-    if not exploits then
-        print(globals.name + ": Please update metaxploit.so.")
+    objects = libs.localHack(argv[1], injectArg)
+    if objects.len == 0 then
+        print(globals.name + ": No exploits found.")
         return false
     end if
 
-    objects = []
-    for exploit in exploits.memorys
-        print("<color=#FF0000>" + exploit.key + "</color>")
-        for value in exploit.value
-            print(char(9) + "<color=#FFFF00>" + value + "</color>")
-            object = metalib.overflow(exploit.key, value, injectArg)
-            if typeof(object) != "shell" and typeof(object) != "computer" and typeof(object) != "file" then continue
-            localIP = current.localip
-            if typeof(object) == "shell" then localIP = object.host_computer.local_ip
-            if typeof(object) == "computer" then localIP = object.local_ip
-            if not globals.objects.hasIndex(object) then
-                objects.push({"object": object, "user": globals.libs.checkUser(object), "addr": exploit.key, "vuln": value, "localip": localIP, "publicip": current.publicip, "router": current.router })
-            end if
-        end for
-    end for
-
     if objects.len > 0 then
         for object in objects
-            globals.objects.push(object)
+            dirty = {}
+            dirty.user = object.user
+            dirty.object = object.object
+            dirty.computer = object.object
+            if not dirty.computer and typeof(object.object) == "shell" then dirty.computer = object.object.host_computer
+            if not dirty.computer and typeof(object.object) == "file" then dirty.computer = null
+            dirty.folder = libs.navTo(object.object, "/home/" + object.user)
+            if dirty.user == "root" then dirty.folder = libs.navTo(object.object, "/root")
+            if not dirty.folder then dirty.folder = libs.navTo(object.object, "/")
+            dirty.router = object.router
+            dirty.publicip = object.publicip
+            dirty.localip = object.localip
+            if dirtyObjects.indexOf(dirty) == null then
+                dirtyObjects.push(dirty)
+            end if
+            if globals.objects.indexOf(dirty) == null then
+                globals.objects.push(dirty)
+            end if
         end for
         print("<color=white>Please use <b>objects</b> command to switch to remote machine.</color>")
     end if
@@ -1793,51 +2193,8 @@ globals.commands["wipe"]["run"] = function(argv = [])
         answer = answer.trim
     end while
     if answer == "n" or answer == "N" then return print(globals.name + ": Not wiping.")
-
-    filenames = ["payload", "crypto.so", "metaxploit.so", "ScanLan.exe", program_path.split("/")[-1]]
-    for filename in filenames
-        fileobj = globals.libs.navTo(current.object, current.folder.path + "/" + filename)
-        if not fileobj then continue
-        result = fileobj.delete
-        if result == 0 then
-            print(globals.name + ": Could not delete '" + filename + "'.")
-        else
-            print(globals.name + ": File '" + filename + "' wiped.")
-        end if
-    end for
-
-    allFiles = globals.libs.findAll(globals.libs.toFile(current.object))
-    if not allFiles then return print(globals.name + ": Not a file object.")
-    if allFiles.len == 0 then return print(globals.name + ": No files in root folder.")
-
-    files = globals.libs.findAllWithWrite(allFiles)
-    if not files then return print(globals.name + ": Not a list of maps.")
-    if files.len == 0 then return print(globals.name + ": Cannot find any files.")
-
-    file = null
-    for f in files
-        if f.type == "text" then
-            file = f.file
-            break
-        end if
-    end for
-    if not file then return print(globals.name + ": File not found.")
-
-    result = file.copy("/var", "system.log")
-    if typeof(result) == "string" then
-        print(globals.name + ": Failed to clean log file.")
-        return false
-    end if
-
-    file = globals.libs.navTo(current.object, "/var/system.log")
-    if not file then
-        print(globals.name + ": File not found.")
-        return false
-    end if
-    file.set_content("")
-    print(globals.name + ": Log cleaned!")
-    
-    return true
+    libs.wipeTool(current.object, current.folder.path)
+    return libs.wipeLog(current.object)
 end function
 
 globals.commands["clear"] = { "name": "clear", "desc": "Clear the terminal screen.", "args": "" }
@@ -1884,6 +2241,98 @@ globals.commands["remote"]["run"] = function(argv = [])
     return true
 end function
 
+globals.commands["dirty"] = { "name": "dirty", "desc": "List all dirty objects.", "args": "" }
+globals.commands["dirty"]["run"] = function(argv = [])
+    if typeof(argv) != "list" then return print(globals.name + ": Invalid argument vector given.")
+    if argv.len > 1 then return print(globals.name + ": Takes no arguments.")
+    if dirtyObjects.len == 0 then return print(globals.name + ": No dirty objects found.")
+    i = 0
+    info = "ID TYPE ACCESS PUBLIC LOCAL"
+    for dirty in dirtyObjects
+        info = info + char(10) + str(i) + " " + typeof(dirty.object) + " " + dirty.user + " " + dirty.publicip + " " + dirty.localip
+        i = i + 1
+    end for
+    print(format_columns(info))
+    return true
+end function
+
+globals.commands["scrub"] = { "name": "scrub", "desc": "Clean up all dirty objects.", "args": "" }
+globals.commands["scrub"]["run"] = function(argv = [])
+    if typeof(argv) != "list" then return print(globals.name + ": Invalid argument vector given.")
+    if argv.len > 1 then return print(globals.name + ": Takes no arguments.")
+    if dirtyObjects.len == 0 then return print(globals.name + ": No dirty objects found.")
+    print(globals.name + ": <color=white>Scrubbing dirty ojects...</color>")
+    while dirtyObjects.len > 0
+        dirty = dirtyObjects.pull
+        if typeof(dirty.object) == "shell" then
+            print(globals.name + ": <color=yellow>Scrubbing dirty shell objects...</color>")
+            if dirty.user == "guest" then
+                if dirty.router.public_ip == dirty.publicip and dirty.router.local_ip == dirty.localip then
+                    // Is a router.
+                    if localBounce(dirty) then
+                        index = dirtyObjects.indexOf(dirty)
+                        if index != null then
+                            dirtyObjects.remove(index)
+                        end if
+                    end if
+                else
+                    if localElevateFromUser(dirty) then
+                        index = dirtyObjects.indexOf(dirty)
+                        if index != null then
+                            dirtyObjects.remove(index)
+                        end if
+                    end if
+                end if
+            else if dirty.user == "root" then
+                libs.wipeTool(dirty.object, dirty.folder.path)
+                if libs.wipeLog(dirty.object) then
+                    index = dirtyObjects.indexOf(dirty)
+                    if index != null then
+                        dirtyObjects.remove(index)
+                    end if
+                end if
+            else
+                // Wipe tool off computer.
+                libs.wipeTool(dirty.object, dirty.folder.path)
+
+                // Elevate from user to root.
+                file = libs.navTo(dirty.object, "/etc/passwd")
+                if not file then return false
+                if not file.has_permission("r") then return false
+                content = file.get_content
+                if content.len < 32 then return false
+                rootHash = content[content.indexOf("root:")+5:37]
+                shell = elevateToRoot(dirty, rootHash)
+                if shell != null then
+                    libs.wipeLog(shell)
+                    index = dirtyObjects.indexOf(dirty)
+                    if index != null then
+                        dirtyObjects.remove(index)
+                    end if
+                end if
+            end if
+        else
+            if dirty.user == "root" then
+                print(globals.name + ": <color=yellow>Scrubbing dirty object...</color>")
+                // Clean log file.
+                if libs.wipeLog(dirty.object) then
+                    index = dirtyObjects.indexOf(dirty)
+                    if index != null then
+                        dirtyObjects.remove(index)
+                    end if
+                end if
+            else
+                print(globals.name + ": <color=orange>Removing dirty object, that cannot be scrubbed...</color>")
+                index = dirtyObjects.indexOf(dirty)
+                if index != null then
+                    dirtyObjects.remove(index)
+                end if
+            end if
+        end if
+    end while
+    return true
+end function
+
 globals.commands["objects"] = { "name": "objects", "desc": "Display all objects or select an object.", "args": "[(opt) ID]" }
 globals.commands["objects"]["run"] = function(argv = [])
     if typeof(argv) != "list" then return print(globals.name + ": Invalid argument vector given.")
@@ -1906,25 +2355,19 @@ globals.commands["objects"]["run"] = function(argv = [])
         end if
         current.user = globals.objects[objectid].user
         current.object = globals.objects[objectid].object
-        current.computer = function
-            if typeof(current.object) == "shell" then return current.object.host_computer
-            if typeof(current.object) == "computer" then return current.object
-            return null
-        end function
-        current.folder = function
-            if current.user == "root" then
-                return globals.libs.navTo(current.object, "/root")
-            else
-                file = globals.libs.navTo(current.object, "/home/" + current.user)
-                if file != null then
-                    return globals.libs.navTo(current.object, file.path)
-                end if
-            end if
-            return globals.libs.toFile(current.object)
-        end function
+        current.computer = globals.objects[objectid].object
+        if typeof(globals.objects[objectid].object) == "shell" then current.computer = globals.objects[objectid].object.host_computer
+        if typeof(globals.objects[objectid].object) == "file" then current.computer = null
+        globals.objects[objectid].folder = libs.navTo(globals.objects[objectid].object, "/home/" + globals.objects[objectid].user)
+        if globals.objects[objectid].user == "root" then globals.objects[objectid].folder = libs.navTo(globals.objects[objectid].object, "/root")
+        if not globals.objects[objectid].folder then globals.objects[objectid].folder = libs.navTo(globals.objects[objectid].object, "/")
+        current.folder = globals.objects[objectid].folder
         current.router = globals.objects[objectid].router
         current.publicip = globals.objects[objectid].publicip
         current.localip = globals.objects[objectid].localip
+        if dirtyObjects.indexOf(globals.objects[objectid]) == null then
+            dirtyObjects.push(globals.objects[objectid])
+        end if
     end if
     return true
 end function
@@ -1936,7 +2379,7 @@ globals.commands["decrypt"]["run"] = function(argv = [])
 
     // Query database and return if found.
     if globals.db.folder != null and globals.db.hasIndex("passwords") then
-        m = globals.libs.dbQueryPasswords(argv[1])
+        m = libs.dbQueryPasswords(argv[1])
         if typeof(m) == "map" then
             print("<color=white>Password: " + m.pass + "</color>")
             return true
@@ -1952,7 +2395,7 @@ globals.commands["decrypt"]["run"] = function(argv = [])
 
     // Write to database.
     if globals.db.folder != null and globals.db.hasIndex("passwords") then
-        if globals.libs.dbWritePasswords(password) then
+        if libs.dbWritePasswords(password) then
             print(globals.name + ": <color=orange>Password added.</color>")
             print(globals.name + ": <color=white>Password: " + password + "</color>")
             return true
@@ -1969,7 +2412,7 @@ globals.commands["random"]["run"] = function(argv = [])
     if typeof(argv) != "list" then return print(globals.name + ": Invalid argument vector given.")
     if argv.len != 1 then return print(globals.name + ": Takes NO arguments.")
 
-    randomIP = globals.libs.getRandomIP
+    randomIP = libs.getRandomIP
     if not randomIP then
         print("Cannot get random IP.")
         return false
@@ -2001,12 +2444,12 @@ globals.commands["dbscan"]["run"] = function(argv = [])
     end if
 
     while amount > 0
-        ip = globals.libs.getRandomIP
+        ip = libs.getRandomIP
         if not ip then
             print(globals.name + ": Cannot get random IP.")
             return false
         end if
-        ret = globals.libs.getPorts(ip)
+        ret = libs.getPorts(ip)
         if not ret then
             print(globals.name + ": Failed to get ports.")
             continue
@@ -2017,13 +2460,13 @@ globals.commands["dbscan"]["run"] = function(argv = [])
             continue
         end if
 
-        globals.libs.scanPort(metaxploit, ret.targetIP, 0)
+        libs.scanPort(metaxploit, ret.targetIP, 0)
         for port in ret.ports
             if not is_lan_ip(ret.targetIP) and port.is_closed then
                 continue
             end if
 
-            globals.libs.scanPort(metaxploit, ret.targetIP, port.port_number)
+            libs.scanPort(metaxploit, ret.targetIP, port.port_number)
         end for
         amount = amount - 1
     end while
@@ -2039,28 +2482,28 @@ globals.commands["dbquery"]["run"] = function(argv = [])
 
     if argv.len == 4 then
         if argv[1] == "exploits" then
-            globals.libs.dbQueryExploits(argv[2], argv[3], true)
+            libs.dbQueryExploits(argv[2], argv[3], true)
         else
             print(globals.name + ": <color=orange>Database entry does NOT exist.</color>")
         end if
     else if argv.len == 3 then
         if argv[1] == "passwords" then
-            m = globals.libs.dbQueryPasswords(argv[2])
+            m = libs.dbQueryPasswords(argv[2])
             if typeof(m) == "map" then
                 print("<color=white>Password: " + m.pass + "</color>")
             else
                 print(globals.name + ": <color=orange>Cannot lookup hash maybe improperly formatted.</color>")
             end if
         else if argv[1] == "exploits" then
-            globals.libs.dbQueryExploits(argv[2], "")
+            libs.dbQueryExploits(argv[2], "")
         else
             print(globals.name + ": <color=orange>Database entry does NOT exist.</color>")
         end if
     else if argv.len == 2 then
         if argv[1] == "passwords" then
-            globals.libs.dbQueryPasswords("")
+            libs.dbQueryPasswords("")
         else if argv[1] == "exploits" then
-            globals.libs.dbQueryExploits("", "")
+            libs.dbQueryExploits("", "")
         else
             print(globals.name + ": <color=orange>Database entry does NOT exist.</color>")
         end if
@@ -2078,27 +2521,27 @@ globals.commands["dbcreate"] = { "name": "dbcreate", "desc": "Create a database.
 globals.commands["dbcreate"]["run"] = function(argv = [])
     if typeof(argv) != "list" then return print(globals.name + ": Invalid argument vector given.")
     if argv.len != 1 then return print(globals.name + ": Takes no arguments.")
-    if globals.libs.dbCheck then
+    if libs.dbCheck then
         print("<color=red>Database already exists.")
         return true
     end if
-    return globals.libs.dbCreate
+    return libs.dbCreate
 end function
 
-globals.commands["dbdelete"] = { "name": "dbdelete", "desc": "Delete an entry from the database.", "args": "[(opt) foldername]" }
+globals.commands["dbdelete"] = { "name": "dbdelete", "desc": "Delete an entry from the database.", "args": "[(opt) dbname]" }
 globals.commands["dbdelete"]["run"] = function(argv = [])
     if typeof(argv) != "list" then return print(globals.name + ": Invalid argument vector given.")
     if argv.len > 2 then return print(globals.name + ": Takes one optional argument.")
     if not globals.db.hasIndex("exploits") or (globals.db.hasIndex("exploits") and globals.db.exploits == null) then return print(globals.name + ": Not connected to database.")
 
     if argv.len == 2 then
-        if globals.libs.dbDeleteExploits(argv[1]) then
+        if libs.dbDelete(argv[1]) then
             print("<color=yellow>Database deleted.</color>")
         else
             print("<color=orange>Database failed to delete.</color>")
         end if
     else
-        if globals.libs.dbDeleteExploits then
+        if libs.dbDelete then
             print("<color=yellow>Database deleted.</color>")
         else
             print("<color=orange>Database failed to delete.</color>")
@@ -2111,39 +2554,9 @@ globals.commands["clean"] = { "name": "clean", "desc": "Clear the log file.", "a
 globals.commands["clean"]["run"] = function(argv = [])
     if typeof(argv) != "list" then return print(globals.name + ": Invalid argument vector given.")
     if argv.len != 1 then return print(globals.name + ": Does NOT take any arguments.")
-    if current.user != "root" then return print(globals.name + ": Must have root access.")
+    if current.user != "root" then print(globals.name + ": <color=orange>You must have <b>root</b> access.</color>")
 
-    allFiles = globals.libs.findAll(globals.libs.toFile(current.object))
-    if not allFiles then return print(globals.name + ": Not a file object.")
-    if allFiles.len == 0 then return print(globals.name + ": No files in root folder.")
-
-    files = globals.libs.findAllWithWrite(allFiles)
-    if not files then return print(globals.name + ": Not a list of maps.")
-    if files.len == 0 then return print(globals.name + ": Cannot find any files.")
-
-    file = null
-    for f in files
-        if f.type == "text" then
-            file = f.file
-            break
-        end if
-    end for
-    if not file then return print(globals.name + ": File not found.")
-
-    result = file.copy("/var", "system.log")
-    if typeof(result) == "string" then
-        print(globals.name + ": Failed to clean log file.")
-        return false
-    end if
-
-    file = globals.libs.navTo(current.object, "/var/system.log")
-    if not file then
-        print(globals.name + ": File not found.")
-        return false
-    end if
-    file.set_content("")
-    print(globals.name + ": Log cleaned!")
-    return true
+    return libs.wipeLog(current.object)
 end function
 
 globals.commands["secure"] = { "name": "secure", "desc": "Secure your local machine or a remote server.", "args": "[type]" }
@@ -2153,7 +2566,7 @@ globals.commands["secure"]["run"] = function(argv = [])
     if current.user != "root" then return print(globals.name + ": This command requires root priviledges.")
 
     if argv[1] == "local" then
-        rootFolder = globals.libs.navTo(local.object, "/")
+        rootFolder = libs.navTo(local.object, "/")
         if not rootFolder then
             print(globals.name + ": Root directory not found.")
             return false
@@ -2174,7 +2587,7 @@ globals.commands["secure"]["run"] = function(argv = [])
         folders = ["/lib", "/bin", "/usr/bin", parent_path(program_path), local.folder.path]
         for filename in filenames
             for folder in folders
-                file = globals.libs.navTo(local.object, folder + "/" + filename)
+                file = libs.navTo(local.object, folder + "/" + filename)
                 if not file then continue
                 file.set_owner("root", false)
                 file.set_group("root", false)
@@ -2194,7 +2607,7 @@ globals.commands["secure"]["run"] = function(argv = [])
         end for
         print(globals.name + ": Secured local machine.")
     else if argv[1] == "remote" then
-        rootFolder = globals.libs.navTo(current.object, "/")
+        rootFolder = libs.navTo(current.object, "/")
         if not rootFolder then
             print(globals.name + ": Root directory not found.")
             return false
@@ -2227,7 +2640,7 @@ globals.commands["secure"]["run"] = function(argv = [])
         folders = ["/lib", "/bin", "/usr/bin", parent_path(program_path), current.folder.path]
         for filename in filenames
             for folder in folders
-                file = globals.libs.navTo(current.object, folder + "/" + filename)
+                file = libs.navTo(current.object, folder + "/" + filename)
                 if not file then continue
                 file.set_owner("root", false)
                 file.set_group("root", false)
@@ -2260,9 +2673,9 @@ globals.commands["vfile"]["run"] = function(argv = [])
     if argv.len == 2 then
         file = null
         if argv[1].indexOf("/") == 0 then
-            file = globals.libs.navTo(globals.current.object, argv[1])
+            file = libs.navTo(globals.current.object, argv[1])
         else
-            file = globals.libs.navTo(globals.current.object, globals.current.folder.path + "/" + argv[1])
+            file = libs.navTo(globals.current.object, globals.current.folder.path + "/" + argv[1])
         end if
         if not file then
             print(globals.name + ": File not found.")
@@ -2336,13 +2749,13 @@ globals.commands["find"]["run"] = function(argv = [])
     if typeof(argv) != "list" then return print(globals.name + ": Invalid argument vector given.")
     if argv.len > 2 then return print(globals.name + ": Takes one optional argument.")
 
-    allFiles = globals.libs.findAll(globals.libs.toFile(current.object))
+    allFiles = libs.findAll(libs.toFile(current.object))
     if not allFiles then return print(globals.name + ": Not a file object.")
     if allFiles.len == 0 then return print(globals.name + ": No files in root folder.")
     
     if argv.len == 2 then
         if argv[1] == "-r" then
-            files = globals.libs.findAllWithRead(allFiles)
+            files = libs.findAllWithRead(allFiles)
             if not files then return print(globals.name + ": Not a list.")
             if files.len == 0 then return print(globals.name + ": Cannot find any files.")
 
@@ -2350,7 +2763,7 @@ globals.commands["find"]["run"] = function(argv = [])
                 print(file.file.path)
             end for
         else if argv[1] == "-w" then
-            files = globals.libs.findAllWithWrite(allFiles)
+            files = libs.findAllWithWrite(allFiles)
             if not files then return print(globals.name + ": Not a list.")
             if files.len == 0 then return print(globals.name + ": Cannot find any files.")
 
@@ -2358,7 +2771,7 @@ globals.commands["find"]["run"] = function(argv = [])
                 print(file.file.path)
             end for
         else if argv[1] == "-x" then
-            files = globals.libs.findAllWithExec(allFiles)
+            files = libs.findAllWithExec(allFiles)
             if not files then return print(globals.name + ": Not a list.")
             if files.len == 0 then return print(globals.name + ": Cannot find any files.")
 
@@ -2473,7 +2886,7 @@ splash = splash + "      Coded by " + globals.coder + char(10)
 print(splash)
 
 // Connect to the database server if there is one available.
-if globals.libs.dbCheck then
+if libs.dbCheck then
     print("<color=yellow>Database Status:</color> <color=green>Available</color>")
 else
     print("<color=yellow>Database Status:</color> <color=red>Not Available</color>")
